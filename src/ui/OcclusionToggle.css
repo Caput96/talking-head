@@ -1,0 +1,20 @@
+/* A single button, floated top-right so it doesn't collide with the
+   ShapeSwitcher row anchored at the bottom. */
+.occlusion-toggle {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  z-index: 1;
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: 1px solid #38507a;
+  background: rgba(11, 11, 15, 0.7);
+  color: #7dd3fc;
+  font: inherit;
+  cursor: pointer;
+}
+
+.occlusion-toggle[aria-pressed='true'] {
+  background: #38507a;
+  color: #fff;
+}

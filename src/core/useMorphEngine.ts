@@ -13,6 +13,9 @@ interface EngineState {
   source: ShapeMorphSource
   pointsGeometry: BufferGeometry
   wireframeGeometry: BufferGeometry
+  /** Invisible (colorWrite: false) surface a caller can render so the far
+   * side of a shape stops showing through the near side — see Scene.tsx. */
+  occluderGeometry: BufferGeometry
 }
 
 function buildEngineState(formation: Formation): EngineState {
@@ -27,7 +30,11 @@ function buildEngineState(formation: Formation): EngineState {
   wireframeGeometry.setAttribute('position', new BufferAttribute(engine.positions, 3))
   wireframeGeometry.setIndex(new BufferAttribute(formation.edges, 1))
 
-  return { engine, source, pointsGeometry, wireframeGeometry }
+  const occluderGeometry = new BufferGeometry()
+  occluderGeometry.setAttribute('position', new BufferAttribute(engine.positions, 3))
+  occluderGeometry.setIndex(new BufferAttribute(formation.faces, 1))
+
+  return { engine, source, pointsGeometry, wireframeGeometry, occluderGeometry }
 }
 
 /**
@@ -46,18 +53,19 @@ function buildEngineState(formation: Formation): EngineState {
  *    isn't a jarring pop.
  *
  * `state` (engine/source/geometries together) is a single React state value —
- * `pointsGeometry`/`wireframeGeometry` must be state so Scene.tsx's JSX
- * (`<points geometry={...}>`) re-renders when a rebuild swaps them for new
- * objects. `retarget()` (called from an effect, not during render) needs to
- * read the *current* state imperatively, so it's mirrored into `stateRef` —
- * but that mirroring happens as a plain assignment in the render body below,
- * not inside the `useState` lazy initializer. Doing it in the initializer
- * looks tempting but is a real bug: React (Strict Mode, in dev) may invoke a
- * lazy initializer twice and keep only one result, so a side effect inside it
- * can point the ref at a *different* engine than the one actually rendered —
- * useFrame then ticks one engine's positions while the JSX shows another's
- * (frozen, all-zero) geometry. A plain assignment every render can't desync
- * like that: it always reflects whatever state React just committed.
+ * `pointsGeometry`/`wireframeGeometry`/`occluderGeometry` must be state so
+ * Scene.tsx's JSX (`<points geometry={...}>`) re-renders when a rebuild swaps
+ * them for new objects. `retarget()` (called from an effect, not during
+ * render) needs to read the *current* state imperatively, so it's mirrored
+ * into `stateRef` — but that mirroring happens as a plain assignment in the
+ * render body below, not inside the `useState` lazy initializer. Doing it in
+ * the initializer looks tempting but is a real bug: React (Strict Mode, in
+ * dev) may invoke a lazy initializer twice and keep only one result, so a
+ * side effect inside it can point the ref at a *different* engine than the
+ * one actually rendered — useFrame then ticks one engine's positions while
+ * the JSX shows another's (frozen, all-zero) geometry. A plain assignment
+ * every render can't desync like that: it always reflects whatever state
+ * React just committed.
  */
 export function useMorphEngine(initialFormation: Formation) {
   const [state, setState] = useState(() => buildEngineState(initialFormation))
@@ -72,6 +80,7 @@ export function useMorphEngine(initialFormation: Formation) {
     current.engine.tick(dt)
     current.pointsGeometry.attributes.position.needsUpdate = true
     current.wireframeGeometry.attributes.position.needsUpdate = true
+    current.occluderGeometry.attributes.position.needsUpdate = true
 
     if (fadeElapsedRef.current >= 0) {
       fadeElapsedRef.current += dt
@@ -92,11 +101,18 @@ export function useMorphEngine(initialFormation: Formation) {
 
     current.pointsGeometry.dispose()
     current.wireframeGeometry.dispose()
+    current.occluderGeometry.dispose()
 
     fadeElapsedRef.current = 0
     setOpacity(0)
     setState(buildEngineState(formation))
   }, [])
 
-  return { pointsGeometry: state.pointsGeometry, wireframeGeometry: state.wireframeGeometry, opacity, retarget }
+  return {
+    pointsGeometry: state.pointsGeometry,
+    wireframeGeometry: state.wireframeGeometry,
+    occluderGeometry: state.occluderGeometry,
+    opacity,
+    retarget,
+  }
 }
