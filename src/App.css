@@ -1,0 +1,8 @@
+/* The R3F <Canvas> renders a block-level <canvas>; make it fill its parent so
+   the 3D scene occupies the entire viewport. */
+canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none; /* let OrbitControls handle drag/zoom gestures on touch */
+}
