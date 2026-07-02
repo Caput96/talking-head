@@ -45,6 +45,7 @@ export function useMorphEngine(initialFormation: Formation) {
     return { engine, source, pointsGeometry, wireframeGeometry }
     // Deliberately built once, ignoring changes to initialFormation: switching
     // shapes later goes through retarget(), not a re-run of this setup.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useFrame((_state, dt) => {

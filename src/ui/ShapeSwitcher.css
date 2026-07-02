@@ -1,0 +1,25 @@
+/* Overlay row of buttons, floated above the full-viewport canvas. */
+.shape-switcher {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+  z-index: 1;
+}
+
+.shape-switcher button {
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: 1px solid #38507a;
+  background: rgba(11, 11, 15, 0.7);
+  color: #7dd3fc;
+  font: inherit;
+  cursor: pointer;
+}
+
+.shape-switcher button[aria-pressed='true'] {
+  background: #38507a;
+  color: #fff;
+}
