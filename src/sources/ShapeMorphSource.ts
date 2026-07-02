@@ -9,39 +9,47 @@ function lerp(a: number, b: number, t: number): number {
 }
 
 /**
- * ShapeMorphSource — a MorphSource that eases between two formations and,
- * on reaching either end, reverses direction: a continuous, automatic
- * ping-pong. This is Phase 1's proof that MorphEngine + the shared buffer
- * work end to end. `from` and `to` must have the same length (same topology,
- * see Formation in core/formations.ts) — the values are lerped index-for-index.
+ * ShapeMorphSource — a MorphSource that eases toward a target formation and
+ * can be retargeted at any time (e.g. from a UI shape switcher). Calling
+ * setTarget() doesn't jump the target immediately: it just marks the current
+ * transition as "start over", and the next update() snapshots wherever
+ * `positions` actually is *right then* as the new starting point. That makes
+ * retargeting mid-transition smooth — it continues from the live position,
+ * not from the old target.
+ *
+ * `target` (and any formation passed to setTarget) must have the same length
+ * as `positions` — guaranteed here by every shape sharing one grid topology
+ * (see core/grid.ts), so this isn't validated at runtime.
  */
 export class ShapeMorphSource implements MorphSource {
-  private readonly from: Float32Array
-  private readonly to: Float32Array
   private readonly durationSec: number
-  private elapsed = 0
-  private reverse = false
+  private target: Float32Array
+  private start: Float32Array | null
+  private elapsed: number
 
-  constructor(from: Float32Array, to: Float32Array, durationSec: number) {
-    this.from = from
-    this.to = to
+  constructor(initialTarget: Float32Array, durationSec: number) {
     this.durationSec = durationSec
+    this.target = initialTarget
+    this.start = initialTarget
+    this.elapsed = durationSec // already "arrived" — update() renders the target as-is
+  }
+
+  setTarget(target: Float32Array): void {
+    this.target = target
+    this.start = null // sentinel: snapshot the live position on the next update()
+    this.elapsed = 0
   }
 
   update(dt: number, positions: Float32Array): void {
-    this.elapsed += dt
-    const rawT = Math.min(this.elapsed / this.durationSec, 1)
-    const t = easeInOutCubic(rawT)
-
-    const start = this.reverse ? this.to : this.from
-    const end = this.reverse ? this.from : this.to
-    for (let i = 0; i < positions.length; i++) {
-      positions[i] = lerp(start[i], end[i], t)
+    if (this.start === null) {
+      this.start = positions.slice()
     }
 
-    if (this.elapsed >= this.durationSec) {
-      this.elapsed = 0
-      this.reverse = !this.reverse
+    this.elapsed += dt
+    const t = easeInOutCubic(Math.min(this.elapsed / this.durationSec, 1))
+
+    for (let i = 0; i < positions.length; i++) {
+      positions[i] = lerp(this.start[i], this.target[i], t)
     }
   }
 }
