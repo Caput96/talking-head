@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { BrowserTTSProvider } from '../tts/BrowserTTSProvider'
 import { getAudioContext } from '../tts/audioContext'
+import { getAudioBus } from '../core/AudioBus'
 import { KOKORO_VOICES } from '../tts/kokoroVoices'
 import './TTSPanel.css'
 
@@ -10,8 +11,10 @@ const LANGUAGE_LABELS = { 'en-us': 'American English', 'en-gb': 'British English
  * TTSPanel — plain DOM UI (not R3F/three), rendered *outside* <Canvas> in
  * App.tsx, like ShapeSwitcher/OcclusionToggle. A minimal proof that
  * TTSProvider works end-to-end: type text, pick a voice, hear it spoken.
- * Doesn't move the head yet — wiring synthesized audio into
- * MorphSource/LipSyncSource is Phase 5's job (see ADR-001 §5's AudioBus).
+ * Playback is routed through the shared AudioBus (core/AudioBus.ts) rather
+ * than straight to the speakers, so LipSyncSource can read its loudness and
+ * animate the head's mouth (Phase 5) while it plays — see
+ * core/useMorphEngine.ts.
  *
  * The voice picker only offers English voices/accents, not languages — see
  * tts/kokoroVoices.ts's doc comment for why kokoro-js doesn't support the
@@ -36,7 +39,7 @@ export function TTSPanel() {
       const result = await provider.synthesize(text, { voice })
       const source = getAudioContext().createBufferSource()
       source.buffer = result.audio
-      source.connect(getAudioContext().destination)
+      getAudioBus().connect(source)
       source.start()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))

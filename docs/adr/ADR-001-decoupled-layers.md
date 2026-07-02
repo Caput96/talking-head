@@ -38,6 +38,18 @@ boundary: behaviors can be added or swapped without modifying the engine. A
 future `AgentStateSource` (assistant motion driven by agent events) fits here
 too, without engine changes.
 
+**Addendum (Phase 5):** `MorphEngine` only ever holds one source, but shape
+morphing and lip-sync need to run *at the same time* — talking shouldn't
+freeze whatever shape animation is in progress, and vice versa. Rather than
+grow `MorphEngine` to hold a list, `CompositeMorphSource` implements
+`MorphSource` itself and runs an ordered list of sources on the same buffer
+each tick (`src/sources/CompositeMorphSource.ts`). Order is the whole
+mechanism: `ShapeMorphSource` runs first and writes full-body rest positions;
+`LipSyncSource` runs after and nudges only the mouth-group vertices on top of
+that frame's rest positions. `MorphEngine` itself needed no change — a
+composite is just another `MorphSource` to it, so the strategy boundary above
+holds exactly as designed.
+
 ### 3. Shape registry
 Each shape is produced by a factory registered in a central registry. Adding a
 shape means registering a new factory **without touching the core**
@@ -64,6 +76,17 @@ deferred to ADR-002.
 TTS audio is analyzed (RMS and/or visemes) and published to a bus that
 `LipSyncSource` subscribes to. The Zustand store already acts as an observable,
 so we do not add a separate event system.
+
+**Addendum (Phase 5):** in practice, `AudioBus` (`src/core/AudioBus.ts`) is a
+plain class wrapping a Web Audio `AnalyserNode`, polled directly inside
+`LipSyncSource.update()` — not Zustand-backed as originally sketched above.
+The reasoning that motivated "reuse the store instead of a new event system"
+still holds (no separate pub/sub layer was added), but RMS changes every
+animation frame, and nothing in React needs to re-render when it does; piping
+a 60fps value through `set()` just to read it back in `useFrame` would be the
+same anti-pattern `MorphEngine.positions` already avoids by being a raw
+`Float32Array` outside React state, not a store field. `AudioBus` follows
+that same precedent instead.
 
 ## Runtime flow
 

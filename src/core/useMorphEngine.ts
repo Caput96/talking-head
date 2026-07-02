@@ -2,15 +2,19 @@ import { useCallback, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { BufferAttribute, BufferGeometry } from 'three'
 import { MorphEngine } from './MorphEngine'
+import { getAudioBus } from './AudioBus'
 import { ShapeMorphSource } from '../sources/ShapeMorphSource'
+import { LipSyncSource } from '../sources/LipSyncSource'
+import { CompositeMorphSource } from '../sources/CompositeMorphSource'
 import type { Formation } from './grid'
 
 const MORPH_DURATION_SEC = 1.2
 const FADE_DURATION_SEC = 0.25
+const NO_MOUTH = new Uint32Array(0)
 
 interface EngineState {
   engine: MorphEngine
-  source: ShapeMorphSource
+  shapeMorphSource: ShapeMorphSource
   pointsGeometry: BufferGeometry
   wireframeGeometry: BufferGeometry
   /** Invisible (colorWrite: false) surface a caller can render so the far
@@ -20,8 +24,22 @@ interface EngineState {
 
 function buildEngineState(formation: Formation): EngineState {
   const vertexCount = formation.positions.length / 3
-  const source = new ShapeMorphSource(formation.positions, MORPH_DURATION_SEC)
-  const engine = new MorphEngine(vertexCount, source)
+  const shapeMorphSource = new ShapeMorphSource(formation.positions, MORPH_DURATION_SEC)
+  // Runs after shapeMorphSource each tick (see CompositeMorphSource) so it can
+  // nudge the mouth vertices' *rest* positions that frame, not fight them.
+  // Rebuilt fresh here rather than updated in place: any formation whose
+  // mouth group could change already goes through this rebuild path (see
+  // this hook's doc comment on vertex-count mismatches), so there's no case
+  // where an existing LipSyncSource needs a live mouth-group swap.
+  const lipSyncSource = new LipSyncSource(
+    formation.mouthGroup ?? NO_MOUTH,
+    formation.positions,
+    getAudioBus(),
+  )
+  const engine = new MorphEngine(
+    vertexCount,
+    new CompositeMorphSource([shapeMorphSource, lipSyncSource]),
+  )
 
   const pointsGeometry = new BufferGeometry()
   pointsGeometry.setAttribute('position', new BufferAttribute(engine.positions, 3))
@@ -34,7 +52,7 @@ function buildEngineState(formation: Formation): EngineState {
   occluderGeometry.setAttribute('position', new BufferAttribute(engine.positions, 3))
   occluderGeometry.setIndex(new BufferAttribute(formation.faces, 1))
 
-  return { engine, source, pointsGeometry, wireframeGeometry, occluderGeometry }
+  return { engine, shapeMorphSource, pointsGeometry, wireframeGeometry, occluderGeometry }
 }
 
 /**
@@ -52,7 +70,11 @@ function buildEngineState(formation: Formation): EngineState {
  *    its own), snap directly to it, and cross-fade opacity in so the swap
  *    isn't a jarring pop.
  *
- * `state` (engine/source/geometries together) is a single React state value —
+ * MorphEngine's actual source is a CompositeMorphSource of shapeMorphSource
+ * + a LipSyncSource (ADR-001 §2 addendum) — both run every tick, so shape
+ * morphing and mouth animation coexist without either one owning the engine.
+ *
+ * `state` (engine/sources/geometries together) is a single React state value —
  * `pointsGeometry`/`wireframeGeometry`/`occluderGeometry` must be state so
  * Scene.tsx's JSX (`<points geometry={...}>`) re-renders when a rebuild swaps
  * them for new objects. `retarget()` (called from an effect, not during
@@ -95,7 +117,7 @@ export function useMorphEngine(initialFormation: Formation) {
 
     const nextVertexCount = formation.positions.length / 3
     if (nextVertexCount === current.engine.vertexCount) {
-      current.source.setTarget(formation.positions)
+      current.shapeMorphSource.setTarget(formation.positions)
       return
     }
 
