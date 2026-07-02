@@ -33,4 +33,17 @@ describe('sampleGrid', () => {
     // Row 0: vertices 0, 1, 2 — the ring edge from col 2 should wrap back to col 0.
     expect(pairs).toContainEqual([2, 0])
   })
+
+  it('builds two triangles per grid cell, all indices in bounds', () => {
+    const { faces } = sampleGrid(rows, cols, identitySurface)
+    const vertexCount = (rows + 1) * cols
+
+    // 2 triangles per cell * rows * cols cells * 3 indices per triangle.
+    expect(faces.length).toBe(2 * rows * cols * 3)
+
+    for (const index of faces) {
+      expect(index).toBeGreaterThanOrEqual(0)
+      expect(index).toBeLessThan(vertexCount)
+    }
+  })
 })

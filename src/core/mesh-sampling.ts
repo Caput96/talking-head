@@ -22,6 +22,9 @@ export function sampleMesh(geometry: BufferGeometry, mouthGroup?: Uint32Array): 
   return {
     positions: new Float32Array(positionAttr.array),
     edges: deriveEdgeIndices(index.array),
+    // The mesh's own triangle index already *is* a valid face list — unlike
+    // edges (deduplicated pairs), it needs no processing.
+    faces: new Uint32Array(index.array),
     mouthGroup,
   }
 }

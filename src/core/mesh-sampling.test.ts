@@ -22,6 +22,12 @@ describe('sampleMesh', () => {
     expect(edges.length).toBe(6 * 2)
   })
 
+  it('carries the triangle index through unchanged as faces', () => {
+    const { faces } = sampleMesh(tetrahedron())
+
+    expect(Array.from(faces)).toEqual([0, 1, 2, 0, 1, 3, 0, 2, 3, 1, 2, 3])
+  })
+
   it('leaves mouthGroup undefined when not provided', () => {
     const formation = sampleMesh(tetrahedron())
 
