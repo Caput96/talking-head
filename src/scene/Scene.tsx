@@ -5,11 +5,12 @@ import { useShapeStore } from '../store/shapeStore'
 import { useMorphEngine } from '../core/useMorphEngine'
 
 /**
- * Scene — Phase 2: renders whichever shape is selected in shapeStore, and
- * smoothly retargets the morph engine whenever the selection changes (driven
- * by ShapeSwitcher, outside the canvas). Points + wireframe still read the
- * single positions buffer owned by MorphEngine (see core/useMorphEngine);
- * only the target formation changes, never the geometry/topology.
+ * Scene — renders whichever shape is selected in shapeStore, and retargets
+ * the morph engine whenever the selection changes (driven by ShapeSwitcher,
+ * outside the canvas). Most shapes share one vertex count and morph smoothly
+ * into each other; the head doesn't, so useMorphEngine may swap the geometry
+ * objects entirely on that transition — `opacity` cross-fades that swap in
+ * rather than letting it pop (see core/useMorphEngine.ts).
  */
 export function Scene() {
   const currentShapeId = useShapeStore((state) => state.currentShapeId)
@@ -20,7 +21,7 @@ export function Scene() {
     () => shapeRegistry.get(useShapeStore.getState().currentShapeId).create(),
     [],
   )
-  const { pointsGeometry, wireframeGeometry, retarget } = useMorphEngine(initialFormation)
+  const { pointsGeometry, wireframeGeometry, opacity, retarget } = useMorphEngine(initialFormation)
 
   const isFirstRender = useRef(true)
   useEffect(() => {
@@ -34,10 +35,10 @@ export function Scene() {
   return (
     <>
       <points geometry={pointsGeometry}>
-        <pointsMaterial size={0.04} color="#7dd3fc" sizeAttenuation />
+        <pointsMaterial size={0.04} color="#7dd3fc" sizeAttenuation transparent opacity={opacity} />
       </points>
       <lineSegments geometry={wireframeGeometry}>
-        <lineBasicMaterial color="#38507a" />
+        <lineBasicMaterial color="#38507a" transparent opacity={opacity} />
       </lineSegments>
 
       {/* Drei's OrbitControls: drag to rotate, scroll to zoom, right-drag to pan. */}
