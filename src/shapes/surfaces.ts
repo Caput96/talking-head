@@ -24,6 +24,29 @@ export function superellipsoid(exponent: number): SurfaceFn {
 }
 
 /**
+ * A square pyramid: the same signedPow "squaring" trick as superellipsoid
+ * gives a square cross-section, but the radius tapers *linearly* from 0 at
+ * the apex (v=0) to halfBase at the base (v=1) instead of following sin(phi)
+ * (which bulges symmetrically and points at both ends, like superellipsoid).
+ * Left open at the base — no bottom cap — the same simplification the torus
+ * relies on for its tube, and consistent with this project's retro wireframe
+ * look. `u` still wraps a full, unbroken turn, so this fits the shared grid
+ * without any topology changes.
+ */
+export function pyramid(halfBase: number, height: number): SurfaceFn {
+  const cornerPower = 2 / 12 // same "squareness" as the cube — see superellipsoid
+
+  return (u, v) => {
+    const theta = u * Math.PI * 2
+    const radius = v * halfBase // 0 at the apex, halfBase at the base
+    const x = radius * signedPow(Math.cos(theta), cornerPower)
+    const y = radius * signedPow(Math.sin(theta), cornerPower)
+    const z = height * (0.5 - v) // apex at +height/2, base at -height/2
+    return [x, y, z]
+  }
+}
+
+/**
  * A torus: `u` sweeps the main ring (wraps naturally, like every shape here).
  * `v` sweeps the tube's cross-section across a full turn, so v=0 and v=1 map
  * to the same 3D point — the tube closes with no seam even though the shared
