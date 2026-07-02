@@ -20,6 +20,10 @@
 export interface Formation {
   positions: Float32Array
   edges: Uint32Array
+  /** Vertex indices making up the mouth (ADR-001 §3). Only the head shape
+   * sets this — MorphEngine/ShapeMorphSource never look at it; it exists to
+   * be read later by LipSyncSource (Phase 5). */
+  mouthGroup?: Uint32Array
 }
 
 export type SurfaceFn = (u: number, v: number) => readonly [number, number, number]
