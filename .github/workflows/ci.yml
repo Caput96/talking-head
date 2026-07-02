@@ -1,7 +1,7 @@
 name: CI
 
-# Minimal gate: run lint + typecheck on every push and pull request.
-# Deliberately no build/test/deploy here — those come in later phases.
+# Minimal gate: run lint + typecheck + unit tests on every push and pull request.
+# Deliberately no build/deploy here — those come in later phases.
 on:
   push:
   pull_request:
@@ -27,3 +27,5 @@ jobs:
       - run: pnpm lint
 
       - run: pnpm typecheck
+
+      - run: pnpm test
