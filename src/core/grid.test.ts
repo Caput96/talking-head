@@ -34,16 +34,26 @@ describe('sampleGrid', () => {
     expect(pairs).toContainEqual([2, 0])
   })
 
-  it('builds two triangles per grid cell, all indices in bounds', () => {
+  it('builds two triangles per grid cell plus a fan cap at each end, all indices in bounds', () => {
     const { faces } = sampleGrid(rows, cols, identitySurface)
     const vertexCount = (rows + 1) * cols
 
-    // 2 triangles per cell * rows * cols cells * 3 indices per triangle.
-    expect(faces.length).toBe(2 * rows * cols * 3)
+    // 2 triangles per cell * rows * cols cells, + (cols - 2) cap triangles
+    // at each of the 2 ends (row 0 and row `rows`) * 3 indices per triangle.
+    expect(faces.length).toBe((2 * rows * cols + 2 * (cols - 2)) * 3)
 
     for (const index of faces) {
       expect(index).toBeGreaterThanOrEqual(0)
       expect(index).toBeLessThan(vertexCount)
     }
+  })
+
+  it('caps row 0 with a fan from its first vertex, using only existing ring vertices', () => {
+    const { faces } = sampleGrid(rows, cols, identitySurface)
+    const triangles: Array<[number, number, number]> = []
+    for (let i = 0; i < faces.length; i += 3) triangles.push([faces[i], faces[i + 1], faces[i + 2]])
+
+    // Row 0 has vertices 0, 1, 2 — the only possible fan triangle is (0, 1, 2).
+    expect(triangles).toContainEqual([0, 1, 2])
   })
 })

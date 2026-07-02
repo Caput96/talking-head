@@ -71,8 +71,17 @@ function buildGridEdges(rows: number, cols: number): Uint32Array {
  * Two triangles per grid cell (the quad between a row and the next one) —
  * the surface used for occlusion (see core/useMorphEngine.ts), not for the
  * wireframe. Same (row, col) indexing as buildGridEdges, so the torus's
- * seamless close and the pyramid's intentionally open base (there's no row
- * after the last one, so no closing cap) carry over here with no extra work.
+ * seamless close carries over here with no extra work.
+ *
+ * Both ends (row 0 and row `rows`) also get a fan-triangulated cap, built
+ * only from vertices that already exist on that ring (no new vertices —
+ * that would change the vertex count and break morph compatibility with
+ * every other shape). For a pole — where every column has collapsed to the
+ * same 3D point, like the top/bottom of a sphere — this is a no-op: the fan
+ * triangles all have zero area, so they're simply invisible. For a shape
+ * whose end is a genuine open ring instead — the pyramid's flat base — this
+ * is what actually closes it, so the occluder doesn't leave a hole to see
+ * through. One rule, no per-shape special case.
  */
 function buildGridFaces(rows: number, cols: number): Uint32Array {
   const vertexIndex = (row: number, col: number) => row * cols + (col % cols)
@@ -85,6 +94,12 @@ function buildGridFaces(rows: number, cols: number): Uint32Array {
       const c = vertexIndex(row + 1, col)
       const d = vertexIndex(row + 1, col + 1)
       faces.push(a, b, d, a, d, c)
+    }
+  }
+
+  for (const row of [0, rows]) {
+    for (let col = 1; col < cols - 1; col++) {
+      faces.push(vertexIndex(row, 0), vertexIndex(row, col), vertexIndex(row, col + 1))
     }
   }
 
