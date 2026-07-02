@@ -11,7 +11,8 @@
   width: 260px;
 }
 
-.tts-panel textarea {
+.tts-panel textarea,
+.tts-panel select {
   resize: none;
   padding: 8px 12px;
   border-radius: 6px;
