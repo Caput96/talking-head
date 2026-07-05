@@ -26,6 +26,9 @@ importers:
       three:
         specifier: ^0.185.1
         version: 0.185.1
+      wawa-lipsync:
+        specifier: ^0.0.2
+        version: 0.0.2
       zustand:
         specifier: ^5.0.14
         version: 5.0.14(@types/react@19.2.17)(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7))
@@ -1248,6 +1251,9 @@ packages:
       jsdom:
         optional: true
 
+  wawa-lipsync@0.0.2:
+    resolution: {integrity: sha512-aW4vKMOBRsv2RnPugzB0fF0ln1ni3kE3INks9xxeQ8+RnL6uZZzenzn/dwdwji8BBD8IboJBatFj/WkoyyYaew==}
+
   webgl-constants@1.1.1:
     resolution: {integrity: sha512-LkBXKjU5r9vAW7Gcu3T5u+5cvSvh5WwINdr0C+9jpzVB41cjQAP5ePArDtk/WHYdVj0GefCgM73BA7FlIiNtdg==}
 
@@ -2270,6 +2276,8 @@ snapshots:
       '@types/node': 24.13.2
     transitivePeerDependencies:
       - msw
+
+  wawa-lipsync@0.0.2: {}
 
   webgl-constants@1.1.1: {}
 

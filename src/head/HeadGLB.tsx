@@ -1,0 +1,186 @@
+import { useEffect, useMemo } from 'react'
+import { useFrame } from '@react-three/fiber'
+import { useGLTF } from '@react-three/drei'
+import {
+  BufferAttribute,
+  BufferGeometry,
+  DoubleSide,
+  LineBasicMaterial,
+  LineSegments,
+  Mesh,
+  MeshBasicMaterial,
+  Points,
+  PointsMaterial,
+  Vector3,
+} from 'three'
+import { deriveEdgeIndices } from '../core/mesh-topology'
+import { useDebugStore } from '../store/debugStore'
+// `?url` asks Vite for the fingerprinted URL of the asset (see vite/client
+// types) rather than inlining it — the GLB lives at the repo root, which Vite
+// doesn't serve, so we hand this URL to useGLTF.
+import headUrl from '../../assets/head.glb?url'
+
+/**
+ * HeadGLB — renders the custom GLB head (ADR-003) in the retro points+wireframe
+ * style, with its 15 Oculus viseme morph targets preserved so the mouth can be
+ * deformed by the vertex shader.
+ *
+ * This is the "morph-weight" animation path from ADR-003: it renders from the
+ * GLB's own geometry and is animated ONLY by writing `morphTargetInfluences` —
+ * it does NOT go through MorphEngine / the shared positions buffer (that path
+ * still drives the parametric grid shapes). Keeping the two apart is the whole
+ * point of the boundary in ADR-003.
+ *
+ * Step 1 (this commit) is audio-free: a manual slider (debugStore, via
+ * VisemePanel) drives one viseme weight, purely to verify the exported morph
+ * targets actually deform the mesh in three.js before any lip-sync exists.
+ */
+
+// useGLTF caches parsed GLBs by URL; preload warms that cache at import time so
+// the first render doesn't stall on parsing.
+useGLTF.preload(headUrl)
+
+const POINT_COLOR = '#7dd3fc' // matches the retro look in scene/Scene.tsx
+const LINE_COLOR = '#38507a'
+const FIT_SIZE = 3 // target world size of the head's largest dimension
+// The exported head's face points along local -X. The default camera looks down
+// -Z (i.e. it sees the +Z side of things), so we rotate the head +90° about Y to
+// bring the face round to +Z, toward the viewer. Applied on an OUTER group (see
+// render) so it rotates about the origin the inner group already recentres on.
+const FACING_Y = Math.PI / 2
+
+export function HeadGLB({ showOcclusion }: { showOcclusion: boolean }) {
+  // useGLTF returns the parsed scene graph. It's cached/stable, so the useMemo
+  // below only runs once per distinct GLB.
+  const { scene } = useGLTF(headUrl)
+
+  const { points, line, occluder, position, scale } = useMemo(() => {
+    // Find the mesh by traversing rather than by node name (`nodes['Plane.011']`),
+    // so a re-export that renames the node can't silently break this.
+    let mesh: Mesh | undefined
+    scene.traverse((object) => {
+      if (!mesh && (object as Mesh).isMesh) mesh = object as Mesh
+    })
+    if (!mesh) throw new Error('head.glb contains no mesh')
+
+    const geometry = mesh.geometry
+
+    // --- Points: one dot per vertex. ---
+    // Passing geometry to the constructor lets Points.updateMorphTargets() set
+    // up morphTargetInfluences immediately (geometry is present at construction).
+    // transparent:true is deliberate even though opacity is 1: it moves the
+    // points into three.js's transparent render pass, which runs AFTER opaque
+    // objects. The occluder below is opaque, so by the time these points draw
+    // its depth is already in the buffer and back-of-head points fail the depth
+    // test and are hidden. As plain opaque objects they'd sort unstably against
+    // the occluder and often draw first, before its depth existed — which is why
+    // the toggle appeared to do nothing. Same reasoning as scene/Scene.tsx.
+    const pointsMaterial = new PointsMaterial({
+      size: 0.04,
+      color: POINT_COLOR,
+      sizeAttenuation: true,
+      transparent: true,
+    })
+    const points = new Points(geometry, pointsMaterial)
+
+    // GOTCHA: GLTFLoader writes the viseme *names* onto the loaded Mesh's
+    // morphTargetDictionary, NOT onto the geometry's morph attributes. So the
+    // dictionary our fresh Points just derived from the geometry is numeric
+    // ("0".."14"). Copy the loaded mesh's NAMED dictionary so we can address a
+    // target by "aa"/"oh"/... instead of a magic index. (The 15-zero
+    // influences array Points built is fine to keep.)
+    points.morphTargetDictionary = mesh.morphTargetDictionary
+
+    // --- Wireframe: same vertices, drawn as edges. ---
+    // A lightweight geometry that SHARES the position attribute and the morph
+    // attributes (same objects, not copies) with the points, so both morph in
+    // lockstep; only the index differs. deriveEdgeIndices() dedupes the triangle
+    // index into unique edge pairs (reused from core/mesh-topology.ts).
+    const wireGeometry = new BufferGeometry()
+    wireGeometry.setAttribute('position', geometry.attributes.position)
+    wireGeometry.morphAttributes.position = geometry.morphAttributes.position
+    wireGeometry.morphTargetsRelative = geometry.morphTargetsRelative
+    wireGeometry.setIndex(new BufferAttribute(deriveEdgeIndices(geometry.index!.array), 1))
+
+    // transparent:true for the same render-pass reason as the points above.
+    const lineMaterial = new LineBasicMaterial({ color: LINE_COLOR, transparent: true })
+    const line = new LineSegments(wireGeometry, lineMaterial)
+    // Point the wireframe at the SAME influences array + named dictionary as the
+    // points, so writing a weight once (in useFrame) moves both together.
+    line.morphTargetDictionary = points.morphTargetDictionary
+    line.morphTargetInfluences = points.morphTargetInfluences
+
+    // --- Occluder: invisible solid surface (the "Solid" toggle). ---
+    // Reuses the head's own triangle geometry, drawn with colorWrite:false so it
+    // writes depth but no colour: the far side of the head then fails the depth
+    // test and stops showing through the near side. Same trick as the buffer
+    // path (scene/Scene.tsx), but the head needs its own since it renders
+    // outside MorphEngine. Shares the points' influences/dictionary so it morphs
+    // in lockstep with the mouth. DoubleSide avoids depending on triangle winding.
+    const occluderMaterial = new MeshBasicMaterial({ colorWrite: false, side: DoubleSide })
+    const occluder = new Mesh(geometry, occluderMaterial)
+    occluder.morphTargetDictionary = points.morphTargetDictionary
+    occluder.morphTargetInfluences = points.morphTargetInfluences
+
+    // --- Fit + recentre. ---
+    // The exported head is ~5 units tall and offset from the origin, which would
+    // overflow / sit off-centre for the default camera. A parent <group>
+    // transform recentres it on its own bounding box and scales it to FIT_SIZE.
+    // A group (parent) transform applies uniformly to the already-morphed
+    // vertices, so it never interferes with the morph deltas themselves.
+    geometry.computeBoundingBox()
+    const box = geometry.boundingBox!
+    const center = box.getCenter(new Vector3())
+    const size = box.getSize(new Vector3())
+    const scale = FIT_SIZE / Math.max(size.x, size.y, size.z)
+    const position: [number, number, number] = [
+      -center.x * scale,
+      -center.y * scale,
+      -center.z * scale,
+    ]
+
+    return { points, line, occluder, position, scale }
+  }, [scene])
+
+  // Dispose the objects WE created on unmount (e.g. switching away from the
+  // head). The shared GLTF geometry is owned by useGLTF's cache — don't touch
+  // it — but the wireframe geometry and both materials are ours.
+  useEffect(() => {
+    return () => {
+      line.geometry.dispose()
+      ;(points.material as PointsMaterial).dispose()
+      ;(line.material as LineBasicMaterial).dispose()
+      ;(occluder.material as MeshBasicMaterial).dispose()
+    }
+  }, [points, line, occluder])
+
+  // Pull model (same precedent as AudioBus / useMorphEngine): read the slider
+  // imperatively each frame instead of subscribing. Zero every influence, then
+  // apply the selected one, so switching visemes doesn't leave a target stuck on.
+  useFrame(() => {
+    const { debugViseme, debugWeight } = useDebugStore.getState()
+    const influences = points.morphTargetInfluences
+    const dictionary = points.morphTargetDictionary
+    if (!influences || !dictionary) return
+    influences.fill(0)
+    const index = dictionary[debugViseme]
+    if (index !== undefined) influences[index] = debugWeight
+  })
+
+  // Outer group only rotates the head to face the camera; the inner group
+  // recentres + scales it onto the origin. Splitting them matters: rotating the
+  // *recentring* group would spin the head about the local origin and knock it
+  // off-centre, because that group's own position offset isn't at the origin.
+  return (
+    <group rotation={[0, FACING_Y, 0]}>
+      <group position={position} scale={scale}>
+        {/* <primitive> drops an existing three.js object into the R3F scene graph
+            as-is — we built Points/LineSegments imperatively above so their morph
+            dictionaries were wired up with the geometry present. */}
+        <primitive object={points} />
+        <primitive object={line} />
+        {showOcclusion && <primitive object={occluder} />}
+      </group>
+    </group>
+  )
+}
