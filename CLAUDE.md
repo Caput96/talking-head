@@ -106,8 +106,7 @@ pnpm test         # tests (vitest)
 3. Head: low-poly retro mesh, sampled into points+edges, mouth group.
 4. Local TTS: lock the `TTSProvider` interface, then integrate the model.
 5. Lip-sync: amplitude-driven first, then viseme-driven on the mouth group.
-6. Editor & export: GLB/PLY/OBJ, save formations.
-7. Polish: post-processing, performance, documentation.
+6. Polish: post-processing, performance, documentation.
 
 ## When to use Claude Code features (only if NEEDED)
 
