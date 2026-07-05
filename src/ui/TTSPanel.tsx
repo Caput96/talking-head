@@ -8,7 +8,7 @@ const LANGUAGE_LABELS = { 'en-us': 'American English', 'en-gb': 'British English
 
 /**
  * TTSPanel — plain DOM UI (not R3F/three), rendered *outside* <Canvas> in
- * App.tsx, like ShapeSwitcher/OcclusionToggle. A minimal proof that
+ * App.tsx, like ShapeSwitcher/FillToggle. A minimal proof that
  * TTSProvider works end-to-end: type text, pick a voice, hear it spoken.
  *
  * Playback is routed through the wawa-lipsync bridge (head/wawaLipsync.ts),

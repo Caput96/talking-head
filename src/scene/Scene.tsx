@@ -9,9 +9,12 @@ import { useMorphEngine } from '../core/useMorphEngine'
 import { HeadGLB } from '../head/HeadGLB'
 import { darken } from '../core/color'
 
-// Wireframe color is derived from the user's chosen point color rather than
-// picked separately — see store/appearanceStore.ts.
+// Wireframe/fill colors are derived from the user's chosen point color
+// rather than picked separately — see store/appearanceStore.ts. Fill is
+// darker than the wireframe so it reads as a dim base the wireframe/points
+// visibly sit on top of, not one flat undifferentiated color.
 const WIREFRAME_DARKEN_FACTOR = 0.45
+const FILL_DARKEN_FACTOR = 0.25
 
 /**
  * Scene — renders whichever shape is selected in shapeStore, and retargets
@@ -30,21 +33,21 @@ const WIREFRAME_DARKEN_FACTOR = 0.45
  *    the buffer visuals. (The old sampled-point head still registers in the
  *    ShapeRegistry but is no longer what gets drawn — cleanup is a later step.)
  *
- * `showOcclusion` (toggled by OcclusionToggle, outside the canvas) renders an
- * invisible surface (`colorWrite: false`, still writes depth) so the far
- * side of a shape stops showing through the near side — nothing new becomes
- * *visible*, points/edges just get correctly occluded like any opaque object.
- * It only applies to the buffer path.
+ * `showFill` (toggled by FillToggle, outside the canvas) renders the shape's
+ * triangles as a real flat-colored surface. Occlusion of far-side
+ * points/edges is a side effect of that surface being real (opaque-ish,
+ * depth+color both written) — not a separate invisible depth-only trick
+ * like the old occluder mesh used. It only applies to the buffer path.
  *
  * `showVertices`/`color`/`opacity` (AppearancePanel, outside the canvas) are
  * the other view preferences: hide the point cloud entirely, recolor points
- * + the derived wireframe color, and blend the user's opacity with
+ * + the derived wireframe/fill colors, and blend the user's opacity with
  * useMorphEngine's own shape-swap cross-fade (`transitionOpacity` below) so
  * neither one overwrites the other.
  */
 export function Scene() {
   const currentShapeId = useShapeStore((state) => state.currentShapeId)
-  const showOcclusion = useAppearanceStore((state) => state.showOcclusion)
+  const showFill = useAppearanceStore((state) => state.showFill)
   const showVertices = useAppearanceStore((state) => state.showVertices)
   const color = useAppearanceStore((state) => state.color)
   const userOpacity = useAppearanceStore((state) => state.opacity)
@@ -71,16 +74,23 @@ export function Scene() {
   return (
     <>
       {isHead ? (
-        <HeadGLB showOcclusion={showOcclusion} />
+        <HeadGLB showFill={showFill} />
       ) : (
         <>
-          {showOcclusion && (
+          {showFill && (
             <mesh geometry={occluderGeometry}>
-              {/* colorWrite: false — writes depth so far-side geometry fails the
-                  depth test, but is never itself visible. side=DoubleSide avoids
-                  needing consistent triangle winding across every shape source
-                  (procedural grid vs. sampled mesh). */}
-              <meshBasicMaterial colorWrite={false} side={DoubleSide} />
+              {/* A real flat-colored surface: writes depth AND color, so
+                  far-side geometry fails the depth test as a natural
+                  consequence of being drawn behind an opaque(-ish) front
+                  face — no invisible colorWrite:false trick needed anymore.
+                  side=DoubleSide avoids needing consistent triangle winding
+                  across every shape source (procedural grid vs. sampled mesh). */}
+              <meshBasicMaterial
+                color={darken(color, FILL_DARKEN_FACTOR)}
+                side={DoubleSide}
+                transparent
+                opacity={transitionOpacity * userOpacity}
+              />
             </mesh>
           )}
           {showVertices && (

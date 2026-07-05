@@ -1,4 +1,4 @@
-/* Floated bottom-left: clear of TTSPanel (top-left), OcclusionToggle
+/* Floated bottom-left: clear of TTSPanel (top-left), FillToggle
    (top-right), ShapeSwitcher (bottom-center) and VisemePanel (bottom-right). */
 .appearance-panel {
   position: fixed;

@@ -3,7 +3,7 @@ import './AppearancePanel.css'
 
 /**
  * AppearancePanel — plain DOM UI (not R3F/three), rendered *outside* <Canvas>
- * in App.tsx, like ShapeSwitcher/OcclusionToggle/VisemePanel. Controls the
+ * in App.tsx, like ShapeSwitcher/FillToggle/VisemePanel. Controls the
  * view preferences in store/appearanceStore.ts that apply to BOTH render
  * paths (Scene.tsx's buffer shapes and HeadGLB.tsx): whether the point cloud
  * renders, the shared base color (the wireframe's color is derived from it,

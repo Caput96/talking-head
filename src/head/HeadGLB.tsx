@@ -49,9 +49,12 @@ import headUrl from '../../assets/head.glb?url'
 // the first render doesn't stall on parsing.
 useGLTF.preload(headUrl)
 
-// Wireframe color is derived from the user's chosen point color rather than
-// picked separately — see store/appearanceStore.ts.
+// Wireframe/fill colors are derived from the user's chosen point color
+// rather than picked separately — see store/appearanceStore.ts. Fill is
+// darker than the wireframe so it reads as a dim base the wireframe/points
+// visibly sit on top of, not one flat undifferentiated color.
 const WIREFRAME_DARKEN_FACTOR = 0.45
+const FILL_DARKEN_FACTOR = 0.25
 const FIT_SIZE = 3 // target world size of the head's largest dimension
 // The exported head's face points along local -X. The default camera looks down
 // -Z (i.e. it sees the +Z side of things), so we rotate the head +90° about Y to
@@ -59,7 +62,7 @@ const FIT_SIZE = 3 // target world size of the head's largest dimension
 // render) so it rotates about the origin the inner group already recentres on.
 const FACING_Y = Math.PI / 2
 
-export function HeadGLB({ showOcclusion }: { showOcclusion: boolean }) {
+export function HeadGLB({ showFill }: { showFill: boolean }) {
   // useGLTF returns the parsed scene graph. It's cached/stable, so the useMemo
   // below only runs once per distinct GLB.
   const { scene } = useGLTF(headUrl)
@@ -127,14 +130,20 @@ export function HeadGLB({ showOcclusion }: { showOcclusion: boolean }) {
     line.morphTargetDictionary = points.morphTargetDictionary
     line.morphTargetInfluences = points.morphTargetInfluences
 
-    // --- Occluder: invisible solid surface (the "Solid" toggle). ---
-    // Reuses the head's own triangle geometry, drawn with colorWrite:false so it
-    // writes depth but no colour: the far side of the head then fails the depth
-    // test and stops showing through the near side. Same trick as the buffer
-    // path (scene/Scene.tsx), but the head needs its own since it renders
-    // outside MorphEngine. Shares the points' influences/dictionary so it morphs
-    // in lockstep with the mouth. DoubleSide avoids depending on triangle winding.
-    const occluderMaterial = new MeshBasicMaterial({ colorWrite: false, side: DoubleSide })
+    // --- Occluder: real filled surface (the "Solid" toggle). ---
+    // Reuses the head's own triangle geometry, drawn as a real flat-colored
+    // surface — the far side of the head fails the depth test and stops
+    // showing through the near side as a natural consequence of the surface
+    // being opaque-ish, not via an invisible colorWrite:false trick. Same
+    // approach as the buffer path (scene/Scene.tsx), but the head needs its
+    // own since it renders outside MorphEngine. Shares the points'
+    // influences/dictionary so it morphs in lockstep with the mouth.
+    // DoubleSide avoids depending on triangle winding.
+    const occluderMaterial = new MeshBasicMaterial({
+      color: darken(useAppearanceStore.getState().color, FILL_DARKEN_FACTOR),
+      side: DoubleSide,
+      transparent: true,
+    })
     const occluder = new Mesh(geometry, occluderMaterial)
     occluder.morphTargetDictionary = points.morphTargetDictionary
     occluder.morphTargetInfluences = points.morphTargetInfluences
@@ -183,17 +192,21 @@ export function HeadGLB({ showOcclusion }: { showOcclusion: boolean }) {
   const color = useAppearanceStore((state) => state.color)
   const opacity = useAppearanceStore((state) => state.opacity)
 
-  // pointsMaterial/lineMaterial are built once in the useMemo above (so the
-  // geometry/morph wiring isn't redone on every color tweak); this effect
-  // just mutates their existing color/opacity in place when the store changes.
+  // pointsMaterial/lineMaterial/occluderMaterial are built once in the
+  // useMemo above (so the geometry/morph wiring isn't redone on every color
+  // tweak); this effect just mutates their existing color/opacity in place
+  // when the store changes.
   useEffect(() => {
     const pointsMaterial = points.material as PointsMaterial
     const lineMaterial = line.material as LineBasicMaterial
+    const occluderMaterial = occluder.material as MeshBasicMaterial
     pointsMaterial.color.set(color)
     lineMaterial.color.set(darken(color, WIREFRAME_DARKEN_FACTOR))
+    occluderMaterial.color.set(darken(color, FILL_DARKEN_FACTOR))
     pointsMaterial.opacity = opacity
     lineMaterial.opacity = opacity
-  }, [points, line, color, opacity])
+    occluderMaterial.opacity = opacity
+  }, [points, line, occluder, color, opacity])
 
   // Pull model (same precedent as MorphEngine's positions buffer): read both
   // drivers imperatively each frame instead of subscribing.
@@ -232,7 +245,7 @@ export function HeadGLB({ showOcclusion }: { showOcclusion: boolean }) {
             dictionaries were wired up with the geometry present. */}
         {showVertices && <primitive object={points} />}
         <primitive object={line} />
-        {showOcclusion && <primitive object={occluder} />}
+        {showFill && <primitive object={occluder} />}
       </group>
     </group>
   )

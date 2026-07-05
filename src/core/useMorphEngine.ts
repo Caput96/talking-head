@@ -14,8 +14,10 @@ interface EngineState {
   shapeMorphSource: ShapeMorphSource
   pointsGeometry: BufferGeometry
   wireframeGeometry: BufferGeometry
-  /** Invisible (colorWrite: false) surface a caller can render so the far
-   * side of a shape stops showing through the near side — see Scene.tsx. */
+  /** Triangle-indexed surface a caller can render as a real filled surface
+   * (the "Solid" toggle) — see Scene.tsx. Once opaque-ish, it occludes the
+   * far side of a shape as a side effect of being real geometry with real
+   * depth, not via an invisible colorWrite:false trick. */
   occluderGeometry: BufferGeometry
 }
 

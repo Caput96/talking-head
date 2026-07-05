@@ -1,4 +1,4 @@
-/* Floated bottom-right: clear of TTSPanel (top-left), OcclusionToggle
+/* Floated bottom-right: clear of TTSPanel (top-left), FillToggle
    (top-right) and ShapeSwitcher (bottom-center). */
 .viseme-panel {
   position: fixed;
