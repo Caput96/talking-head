@@ -1,4 +1,4 @@
-import { useShapeStore } from '../store/shapeStore'
+import { useAppearanceStore } from '../store/appearanceStore'
 import './OcclusionToggle.css'
 
 /**
@@ -9,8 +9,8 @@ import './OcclusionToggle.css'
  * everything ("x-ray" style, today's original look).
  */
 export function OcclusionToggle() {
-  const showOcclusion = useShapeStore((state) => state.showOcclusion)
-  const toggleOcclusion = useShapeStore((state) => state.toggleOcclusion)
+  const showOcclusion = useAppearanceStore((state) => state.showOcclusion)
+  const toggleOcclusion = useAppearanceStore((state) => state.toggleOcclusion)
 
   return (
     <button

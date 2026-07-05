@@ -10,20 +10,16 @@ import '../shapes' // side-effect: register every shape before anyone reads the 
  * registry's job (see shapes/ShapeRegistry.ts), keeping this store free of
  * three.js/geometry concerns.
  *
- * Also holds showOcclusion, a view preference (not shape selection) —
- * technically a slightly different concern living in the same small store.
- * Fine at this size; split it out if it keeps growing.
+ * View preferences (showOcclusion, showVertices, color, opacity) used to live
+ * here too, but that was flagged as a growth point in an earlier comment —
+ * they now live in store/appearanceStore.ts instead.
  */
 interface ShapeState {
   currentShapeId: string
   setShape: (id: string) => void
-  showOcclusion: boolean
-  toggleOcclusion: () => void
 }
 
 export const useShapeStore = create<ShapeState>((set) => ({
   currentShapeId: SPHERE_ID,
   setShape: (id) => set({ currentShapeId: id }),
-  showOcclusion: true,
-  toggleOcclusion: () => set((state) => ({ showOcclusion: !state.showOcclusion })),
 }))
