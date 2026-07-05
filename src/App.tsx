@@ -4,6 +4,7 @@ import { ShapeSwitcher } from './ui/ShapeSwitcher'
 import { OcclusionToggle } from './ui/OcclusionToggle'
 import { TTSPanel } from './ui/TTSPanel'
 import { VisemePanel } from './ui/VisemePanel'
+import { AppearancePanel } from './ui/AppearancePanel'
 import './App.css'
 
 /**
@@ -26,6 +27,7 @@ function App() {
       <OcclusionToggle />
       <TTSPanel />
       <VisemePanel />
+      <AppearancePanel />
     </>
   )
 }

@@ -4,8 +4,14 @@ import { DoubleSide } from 'three'
 import { shapeRegistry } from '../shapes'
 import { HEAD_ID } from '../shapes/head/head'
 import { useShapeStore } from '../store/shapeStore'
+import { useAppearanceStore } from '../store/appearanceStore'
 import { useMorphEngine } from '../core/useMorphEngine'
 import { HeadGLB } from '../head/HeadGLB'
+import { darken } from '../core/color'
+
+// Wireframe color is derived from the user's chosen point color rather than
+// picked separately — see store/appearanceStore.ts.
+const WIREFRAME_DARKEN_FACTOR = 0.45
 
 /**
  * Scene — renders whichever shape is selected in shapeStore, and retargets
@@ -29,10 +35,19 @@ import { HeadGLB } from '../head/HeadGLB'
  * side of a shape stops showing through the near side — nothing new becomes
  * *visible*, points/edges just get correctly occluded like any opaque object.
  * It only applies to the buffer path.
+ *
+ * `showVertices`/`color`/`opacity` (AppearancePanel, outside the canvas) are
+ * the other view preferences: hide the point cloud entirely, recolor points
+ * + the derived wireframe color, and blend the user's opacity with
+ * useMorphEngine's own shape-swap cross-fade (`transitionOpacity` below) so
+ * neither one overwrites the other.
  */
 export function Scene() {
   const currentShapeId = useShapeStore((state) => state.currentShapeId)
-  const showOcclusion = useShapeStore((state) => state.showOcclusion)
+  const showOcclusion = useAppearanceStore((state) => state.showOcclusion)
+  const showVertices = useAppearanceStore((state) => state.showVertices)
+  const color = useAppearanceStore((state) => state.color)
+  const userOpacity = useAppearanceStore((state) => state.opacity)
   const isHead = currentShapeId === HEAD_ID
 
   // Read the store once, outside React's reactivity, to seed the very first
@@ -41,7 +56,7 @@ export function Scene() {
     () => shapeRegistry.get(useShapeStore.getState().currentShapeId).create(),
     [],
   )
-  const { pointsGeometry, wireframeGeometry, occluderGeometry, opacity, retarget } =
+  const { pointsGeometry, wireframeGeometry, occluderGeometry, opacity: transitionOpacity, retarget } =
     useMorphEngine(initialFormation)
 
   const isFirstRender = useRef(true)
@@ -68,11 +83,23 @@ export function Scene() {
               <meshBasicMaterial colorWrite={false} side={DoubleSide} />
             </mesh>
           )}
-          <points geometry={pointsGeometry}>
-            <pointsMaterial size={0.04} color="#7dd3fc" sizeAttenuation transparent opacity={opacity} />
-          </points>
+          {showVertices && (
+            <points geometry={pointsGeometry}>
+              <pointsMaterial
+                size={0.04}
+                color={color}
+                sizeAttenuation
+                transparent
+                opacity={transitionOpacity * userOpacity}
+              />
+            </points>
+          )}
           <lineSegments geometry={wireframeGeometry}>
-            <lineBasicMaterial color="#38507a" transparent opacity={opacity} />
+            <lineBasicMaterial
+              color={darken(color, WIREFRAME_DARKEN_FACTOR)}
+              transparent
+              opacity={transitionOpacity * userOpacity}
+            />
           </lineSegments>
         </>
       )}

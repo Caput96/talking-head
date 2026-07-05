@@ -14,7 +14,9 @@ import {
   Vector3,
 } from 'three'
 import { deriveEdgeIndices } from '../core/mesh-topology'
+import { darken } from '../core/color'
 import { useDebugStore } from '../store/debugStore'
+import { useAppearanceStore } from '../store/appearanceStore'
 import { getWawaLipsync } from './wawaLipsync'
 import { HeadMorphController } from './headMorphController'
 // `?url` asks Vite for the fingerprinted URL of the asset (see vite/client
@@ -47,8 +49,9 @@ import headUrl from '../../assets/head.glb?url'
 // the first render doesn't stall on parsing.
 useGLTF.preload(headUrl)
 
-const POINT_COLOR = '#7dd3fc' // matches the retro look in scene/Scene.tsx
-const LINE_COLOR = '#38507a'
+// Wireframe color is derived from the user's chosen point color rather than
+// picked separately — see store/appearanceStore.ts.
+const WIREFRAME_DARKEN_FACTOR = 0.45
 const FIT_SIZE = 3 // target world size of the head's largest dimension
 // The exported head's face points along local -X. The default camera looks down
 // -Z (i.e. it sees the +Z side of things), so we rotate the head +90° about Y to
@@ -82,9 +85,13 @@ export function HeadGLB({ showOcclusion }: { showOcclusion: boolean }) {
     // test and are hidden. As plain opaque objects they'd sort unstably against
     // the occluder and often draw first, before its depth existed — which is why
     // the toggle appeared to do nothing. Same reasoning as scene/Scene.tsx.
+    // Seed from the store's current value (read once, imperatively — the
+    // useEffect below keeps it in sync on every later change) rather than a
+    // hardcoded color, so the geometry/materials aren't rebuilt just because
+    // the user recolors the head.
     const pointsMaterial = new PointsMaterial({
       size: 0.04,
-      color: POINT_COLOR,
+      color: useAppearanceStore.getState().color,
       sizeAttenuation: true,
       transparent: true,
     })
@@ -110,7 +117,10 @@ export function HeadGLB({ showOcclusion }: { showOcclusion: boolean }) {
     wireGeometry.setIndex(new BufferAttribute(deriveEdgeIndices(geometry.index!.array), 1))
 
     // transparent:true for the same render-pass reason as the points above.
-    const lineMaterial = new LineBasicMaterial({ color: LINE_COLOR, transparent: true })
+    const lineMaterial = new LineBasicMaterial({
+      color: darken(useAppearanceStore.getState().color, WIREFRAME_DARKEN_FACTOR),
+      transparent: true,
+    })
     const line = new LineSegments(wireGeometry, lineMaterial)
     // Point the wireframe at the SAME influences array + named dictionary as the
     // points, so writing a weight once (in useFrame) moves both together.
@@ -165,6 +175,26 @@ export function HeadGLB({ showOcclusion }: { showOcclusion: boolean }) {
     }
   }, [points, line, occluder])
 
+  // showVertices/color/opacity are discrete, user-driven changes (a click, a
+  // color-picker drag) rather than 60fps data, so a normal reactive hook is
+  // the right tool here — unlike the useFrame pull-model used for morph
+  // weights below, which really does change every frame.
+  const showVertices = useAppearanceStore((state) => state.showVertices)
+  const color = useAppearanceStore((state) => state.color)
+  const opacity = useAppearanceStore((state) => state.opacity)
+
+  // pointsMaterial/lineMaterial are built once in the useMemo above (so the
+  // geometry/morph wiring isn't redone on every color tweak); this effect
+  // just mutates their existing color/opacity in place when the store changes.
+  useEffect(() => {
+    const pointsMaterial = points.material as PointsMaterial
+    const lineMaterial = line.material as LineBasicMaterial
+    pointsMaterial.color.set(color)
+    lineMaterial.color.set(darken(color, WIREFRAME_DARKEN_FACTOR))
+    pointsMaterial.opacity = opacity
+    lineMaterial.opacity = opacity
+  }, [points, line, color, opacity])
+
   // Pull model (same precedent as MorphEngine's positions buffer): read both
   // drivers imperatively each frame instead of subscribing.
   useFrame((_state, dt) => {
@@ -200,7 +230,7 @@ export function HeadGLB({ showOcclusion }: { showOcclusion: boolean }) {
         {/* <primitive> drops an existing three.js object into the R3F scene graph
             as-is — we built Points/LineSegments imperatively above so their morph
             dictionaries were wired up with the geometry present. */}
-        <primitive object={points} />
+        {showVertices && <primitive object={points} />}
         <primitive object={line} />
         {showOcclusion && <primitive object={occluder} />}
       </group>
