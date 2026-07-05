@@ -50,15 +50,29 @@ that frame's rest positions. `MorphEngine` itself needed no change — a
 composite is just another `MorphSource` to it, so the strategy boundary above
 holds exactly as designed.
 
+**Addendum (Phase 5, viseme step):** `LipSyncSource` was later removed.
+ADR-003's viseme-driven path (`head/HeadGLB.tsx` writing
+`mesh.morphTargetInfluences`, driven by `head/headMorphController.ts`) fully
+took over mouth animation for the GLB head, and it doesn't run through
+`MorphEngine`/the positions buffer at all — see ADR-003. That left
+`LipSyncSource` with no formation it could still visibly affect, so it was
+deleted rather than kept as a dead alternative. `CompositeMorphSource` stays,
+now wrapping a single `ShapeMorphSource`, since this ADR already names the
+next source expected to join it (a future `AgentStateSource`, see CLAUDE.md's
+roadmap).
+
 ### 3. Shape registry
 Each shape is produced by a factory registered in a central registry. Adding a
 shape means registering a new factory **without touching the core**
-(open/closed). The `head` shape additionally carries **edge indices** (for the
-wireframe) and a **mouth group** (vertex indices of the mouth). Other shapes do
-not define a mouth group, so `LipSyncSource` is a no-op on them. Shapes may be
-**time- and parameter-driven** (not only static), which is what lets the same
-mechanism later render animated didactic plots such as a pendulum or a function
-surface.
+(open/closed). Shapes may be **time- and parameter-driven** (not only
+static), which is what lets the same mechanism later render animated didactic
+plots such as a pendulum or a function surface.
+
+**Addendum (Phase 5, viseme step):** the `head` shape's Formation used to
+additionally carry a **mouth group** (vertex indices of the mouth) for
+`LipSyncSource` to read. Removed alongside `LipSyncSource` itself (see the §2
+addendum above) — the GLB head's mouth is now driven entirely by named morph
+targets (ADR-003), which don't need a vertex-index group at all.
 
 ### 4. TTS behind a stable contract
 ```
@@ -88,14 +102,29 @@ same anti-pattern `MorphEngine.positions` already avoids by being a raw
 `Float32Array` outside React state, not a store field. `AudioBus` follows
 that same precedent instead.
 
+**Addendum (Phase 5, viseme step):** `AudioBus` and `LipSyncSource` were both
+removed. Amplitude (RMS) analysis and viseme analysis were never actually two
+different *kinds* of signal — wawa-lipsync's viseme detection (ADR-003) is
+itself real-time audio-feature analysis (frequency bands, volume, spectral
+centroid), just a richer classification of the same live audio than a single
+RMS scalar. Once the viseme path existed and fully drove the GLB head's
+mouth, keeping the RMS path around as a "fallback" would have meant building
+a new, strictly cruder adapter from scratch (the old one targeted vertex
+positions on a mesh that no longer renders), for no real comparison value —
+so it was deleted instead. `getAudioContext()` (`tts/audioContext.ts`) is
+unaffected; only the analyser tap and the source that polled it are gone.
+
 ## Runtime flow
 
 ```
 text → TTSProvider → { audio, timings }
-     → AudioBus (RMS / visemes)
-     → LipSyncSource → MorphEngine (updates buffer)
-     → render: Points + LineSegments (same buffer)
+     → render: Points + LineSegments (MorphEngine's shared buffer)
 ```
+
+Lip-sync no longer appears in this diagram: it moved entirely to ADR-003's
+viseme-driven morph-weight path (`mesh.morphTargetInfluences`, not this
+buffer), once `AudioBus`/`LipSyncSource` were removed — see ADR-003's own
+runtime flow for the current audio → mouth pipeline.
 
 ## Consequences
 

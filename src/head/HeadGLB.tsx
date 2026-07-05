@@ -165,7 +165,7 @@ export function HeadGLB({ showOcclusion }: { showOcclusion: boolean }) {
     }
   }, [points, line, occluder])
 
-  // Pull model (same precedent as AudioBus / useMorphEngine): read both
+  // Pull model (same precedent as MorphEngine's positions buffer): read both
   // drivers imperatively each frame instead of subscribing.
   useFrame((_state, dt) => {
     const influences = points.morphTargetInfluences

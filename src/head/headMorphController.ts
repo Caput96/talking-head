@@ -1,10 +1,11 @@
 import type { VISEMES } from 'wawa-lipsync'
 import { HEAD_TARGET_NAMES, TARGET_BY_WAWA, type HeadTargetName } from './visemeMap'
 
-// Mirrors sources/LipSyncSource.ts's attack/release pattern: attack faster
-// than release, so the mouth snaps into a new shape promptly on a syllable
-// but eases out rather than cutting instantly when wawa's dominant viseme
-// changes every frame.
+// Attack faster than release, a standard amplitude-follower trick: the mouth
+// should snap into a new shape promptly on a syllable but ease out rather
+// than cut instantly when wawa's dominant viseme changes every frame. (The
+// amplitude-driven lip-sync this project used before wawa-lipsync used the
+// same asymmetric attack/release shape, since removed — see ADR-001.)
 const ATTACK_SEC = 0.05
 const RELEASE_SEC = 0.12
 

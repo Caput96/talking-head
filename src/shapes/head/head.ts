@@ -8,7 +8,7 @@ shapeRegistry.register({
   id: HEAD_ID,
   label: 'Head',
   create: () => {
-    const { geometry, mouthGroup } = buildHeadGeometry()
-    return sampleMesh(geometry, mouthGroup)
+    const { geometry } = buildHeadGeometry()
+    return sampleMesh(geometry)
   },
 })

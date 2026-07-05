@@ -28,20 +28,6 @@ describe('sampleMesh', () => {
     expect(Array.from(faces)).toEqual([0, 1, 2, 0, 1, 3, 0, 2, 3, 1, 2, 3])
   })
 
-  it('leaves mouthGroup undefined when not provided', () => {
-    const formation = sampleMesh(tetrahedron())
-
-    expect(formation.mouthGroup).toBeUndefined()
-  })
-
-  it('passes mouthGroup through untouched when provided', () => {
-    const mouthGroup = new Uint32Array([1, 2])
-
-    const formation = sampleMesh(tetrahedron(), mouthGroup)
-
-    expect(formation.mouthGroup).toBe(mouthGroup)
-  })
-
   it('throws on a non-indexed geometry', () => {
     const geometry = new BufferGeometry()
     geometry.setAttribute('position', new BufferAttribute(new Float32Array([0, 0, 0]), 3))

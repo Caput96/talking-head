@@ -13,8 +13,11 @@ import { Lipsync, VISEMES } from 'wawa-lipsync'
  * `Lipsync` opens its OWN `AudioContext` and `connectAudio()` connects
  * straight to ITS OWN destination. So whenever this bridge plays an
  * utterance, IT is what the user actually hears. `ui/TTSPanel.tsx` must not
- * also play the same AudioBuffer through the old AudioBufferSourceNode path
- * (see AudioBus.ts) at the same time, or the utterance would sound doubled.
+ * also play the same AudioBuffer through another path at the same time, or
+ * the utterance would sound doubled — this is in fact why the project's
+ * earlier amplitude-driven playback path (an AudioBufferSourceNode routed
+ * through an AudioBus analyser) was removed rather than kept alongside this
+ * one; see ADR-001's updated addendum.
  */
 class WawaLipsyncBridge {
   private readonly lipsync = new Lipsync()
@@ -39,10 +42,10 @@ class WawaLipsyncBridge {
     void this.audioEl.play()
   }
 
-  /** Pull model (same precedent as AudioBus.getRms()): call once per frame to
-   * advance wawa's analysis and read back the current dominant viseme.
-   * Returns null until the first play() call, so callers can distinguish
-   * "nothing has spoken yet" from an actual silence viseme. */
+  /** Pull model (same precedent as MorphEngine's positions buffer): call once
+   * per frame to advance wawa's analysis and read back the current dominant
+   * viseme. Returns null until the first play() call, so callers can
+   * distinguish "nothing has spoken yet" from an actual silence viseme. */
   getViseme(): VISEMES | null {
     if (!this.hasPlayed) return null
     this.lipsync.processAudio()
@@ -52,7 +55,7 @@ class WawaLipsyncBridge {
 
 let bridge: WawaLipsyncBridge | null = null
 
-/** Lazy singleton — same shape as tts/audioContext.ts / core/AudioBus.ts.
+/** Lazy singleton — same shape as tts/audioContext.ts's getAudioContext().
  * Lazy specifically because `Lipsync`'s constructor and `new Audio()` both
  * require a browser (`window`/DOM), so this must never run at module-import
  * time (e.g. in Node-based unit tests). */
@@ -63,8 +66,9 @@ export function getWawaLipsync(): WawaLipsyncBridge {
 
 /** The narrow slice of AudioBuffer that encodeWav actually needs — kept
  * separate from the DOM type so the encoder is unit-testable with a plain
- * fake, no AudioContext/jsdom required (same pattern as AudioBus.ts's
- * AmplitudeSource). */
+ * fake, no AudioContext/jsdom required (same narrow-interface-for-testability
+ * pattern the project's removed AudioBus.ts used for its own AmplitudeSource;
+ * see ADR-001). */
 export interface DecodedAudio {
   numberOfChannels: number
   sampleRate: number

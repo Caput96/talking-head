@@ -7,7 +7,6 @@ const DETAIL = 3
 
 export interface HeadBuild {
   geometry: BufferGeometry
-  mouthGroup: Uint32Array
 }
 
 /**
@@ -15,10 +14,7 @@ export interface HeadBuild {
  * (same IcosahedronGeometry + mergeVertices technique Phase 1 used, needed
  * again here for a real independently-topologized mesh) with per-vertex
  * displacement for a jaw taper, eye socket dents, a nose bump, and a
- * flattened skull back. Because this function controls every vertex, mouth
- * vertices are tagged directly from their final position — a real imported
- * head (loaded from a file later) would need a different, position-only
- * heuristic since we won't control its generation.
+ * flattened skull back.
  */
 export function buildHeadGeometry(): HeadBuild {
   const base = new IcosahedronGeometry(1, DETAIL)
@@ -27,16 +23,14 @@ export function buildHeadGeometry(): HeadBuild {
   const geometry = mergeVertices(base)
 
   const position = geometry.getAttribute('position')
-  const mouthIndices: number[] = []
 
   for (let i = 0; i < position.count; i++) {
     const [x, y, z] = deform(position.getX(i), position.getY(i), position.getZ(i))
     position.setXYZ(i, x, y, z)
-    if (isMouthVertex(x, y, z)) mouthIndices.push(i)
   }
   position.needsUpdate = true
 
-  return { geometry, mouthGroup: new Uint32Array(mouthIndices) }
+  return { geometry }
 }
 
 function deform(x: number, y: number, z: number): [number, number, number] {
@@ -68,8 +62,4 @@ function deform(x: number, y: number, z: number): [number, number, number] {
   if (nz < -0.5) nz *= 0.8
 
   return [nx, ny, nz]
-}
-
-function isMouthVertex(x: number, y: number, z: number): boolean {
-  return z > 0.55 && y > -0.4 && y < -0.15 && Math.abs(x) < 0.35
 }

@@ -10,11 +10,12 @@ import type { HeadTargetName } from '../head/visemeMap'
  * a chosen viseme + weight here, and HeadGLB reads it each frame.
  *
  * Routing a value through Zustand is normally the wrong choice for something a
- * render loop reads every frame (see ADR-001's §5 addendum — AudioBus/
- * MorphEngine deliberately stay out of the store). It's fine *here* because
- * this value is user-driven: it changes only when someone drags the slider, so
- * the occasional React re-render on the panel side costs nothing, and HeadGLB
- * reads it imperatively via getState() (no per-frame subscription).
+ * render loop reads every frame (see ADR-001's §5 addendum — MorphEngine's
+ * positions buffer deliberately stays out of the store for the same reason).
+ * It's fine *here* because this value is user-driven: it changes only when
+ * someone drags the slider, so the occasional React re-render on the panel
+ * side costs nothing, and HeadGLB reads it imperatively via getState() (no
+ * per-frame subscription).
  */
 interface DebugState {
   /** Which morph target the slider drives. */
