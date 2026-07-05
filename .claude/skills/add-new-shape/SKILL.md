@@ -9,6 +9,15 @@ grid topology (`src/core/grid.ts`, `src/shapes/gridConfig.ts`) so
 index-for-index lerp — this skill's main job is protecting that invariant
 while adding shapes quickly, not just generating files.
 
+`sampleGrid`/`sampleMesh` produce a `Formation` with three surface artifacts:
+`positions`, `edges` (wireframe), and `faces` (an invisible occlusion mesh —
+see core/useMorphEngine.ts and Scene.tsx's "Solid/Wireframe" toggle). A shape
+factory never touches any of these directly; `sampleGrid` builds them all,
+including a fan-triangulated cap at both grid ends (row 0 and row `rows`) so
+the occluder stays fully closed even for a shape whose end isn't a pole (e.g.
+the pyramid's flat base) — this happens automatically, no factory-level work
+needed.
+
 ## Input
 
 The shape's id/label and a short description of its geometry — from the
@@ -121,7 +130,20 @@ surface function with new parameters, a test usually isn't needed.
    of a full point cloud is the classic symptom — see the Phase 1 postmortem
    on `Float32BufferAttribute` copying its input array if positions ever
    look frozen/collapsed).
-5. Stop the dev server.
+5. With occlusion on (the default), confirm the shape reads as fully solid —
+   no far-side geometry showing through an unintended gap. Eyeballing a
+   wireframe screenshot can be genuinely ambiguous here: a shape whose faces
+   all meet at one vertex (a cone/pyramid) naturally shows a dense fan of
+   lines converging there even when correctly occluded, which can look like a
+   leak even when it isn't. When it's unclear, verify with a raycast instead
+   of a screenshot — build the Formation, wrap `positions`/`faces` in a
+   `THREE.Mesh`, and cast a `THREE.Raycaster` ray through the shape from
+   outside; the first hit's position confirms whether the surface is actually
+   closed there (see the pyramid-cap fix's postmortem for the exact pattern).
+   If there's a genuine, unintended gap, it likely means a grid end (row 0 or
+   row `rows`) isn't behaving as expected — not something to silently work
+   around.
+6. Stop the dev server.
 
 ## Step 7 — Report
 

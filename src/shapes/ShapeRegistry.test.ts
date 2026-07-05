@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest'
 import { ShapeRegistry } from './ShapeRegistry'
 import type { Formation } from '../core/grid'
 
-const emptyFormation: Formation = { positions: new Float32Array(), edges: new Uint32Array() }
+const emptyFormation: Formation = {
+  positions: new Float32Array(),
+  edges: new Uint32Array(),
+  faces: new Uint32Array(),
+}
 
 describe('ShapeRegistry', () => {
   it('lists registered factories', () => {

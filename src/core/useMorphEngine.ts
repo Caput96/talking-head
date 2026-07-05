@@ -1,60 +1,140 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { BufferAttribute, BufferGeometry } from 'three'
 import { MorphEngine } from './MorphEngine'
+import { getAudioBus } from './AudioBus'
 import { ShapeMorphSource } from '../sources/ShapeMorphSource'
+import { LipSyncSource } from '../sources/LipSyncSource'
+import { CompositeMorphSource } from '../sources/CompositeMorphSource'
 import type { Formation } from './grid'
 
 const MORPH_DURATION_SEC = 1.2
+const FADE_DURATION_SEC = 0.25
+const NO_MOUTH = new Uint32Array(0)
+
+interface EngineState {
+  engine: MorphEngine
+  shapeMorphSource: ShapeMorphSource
+  pointsGeometry: BufferGeometry
+  wireframeGeometry: BufferGeometry
+  /** Invisible (colorWrite: false) surface a caller can render so the far
+   * side of a shape stops showing through the near side — see Scene.tsx. */
+  occluderGeometry: BufferGeometry
+}
+
+function buildEngineState(formation: Formation): EngineState {
+  const vertexCount = formation.positions.length / 3
+  const shapeMorphSource = new ShapeMorphSource(formation.positions, MORPH_DURATION_SEC)
+  // Runs after shapeMorphSource each tick (see CompositeMorphSource) so it can
+  // nudge the mouth vertices' *rest* positions that frame, not fight them.
+  // Rebuilt fresh here rather than updated in place: any formation whose
+  // mouth group could change already goes through this rebuild path (see
+  // this hook's doc comment on vertex-count mismatches), so there's no case
+  // where an existing LipSyncSource needs a live mouth-group swap.
+  const lipSyncSource = new LipSyncSource(
+    formation.mouthGroup ?? NO_MOUTH,
+    formation.positions,
+    getAudioBus(),
+  )
+  const engine = new MorphEngine(
+    vertexCount,
+    new CompositeMorphSource([shapeMorphSource, lipSyncSource]),
+  )
+
+  const pointsGeometry = new BufferGeometry()
+  pointsGeometry.setAttribute('position', new BufferAttribute(engine.positions, 3))
+
+  const wireframeGeometry = new BufferGeometry()
+  wireframeGeometry.setAttribute('position', new BufferAttribute(engine.positions, 3))
+  wireframeGeometry.setIndex(new BufferAttribute(formation.edges, 1))
+
+  const occluderGeometry = new BufferGeometry()
+  occluderGeometry.setAttribute('position', new BufferAttribute(engine.positions, 3))
+  occluderGeometry.setIndex(new BufferAttribute(formation.faces, 1))
+
+  return { engine, shapeMorphSource, pointsGeometry, wireframeGeometry, occluderGeometry }
+}
 
 /**
  * useMorphEngine — the R3F glue between MorphEngine (plain TS) and the scene.
  *
- * Builds the engine and two BufferGeometry objects once (via useMemo): a
- * points geometry and a wireframe geometry, each with its own
- * THREE.BufferAttribute wrapping the SAME engine.positions Float32Array (see
- * the Phase 1 plan's design note on why they need separate geometries but a
- * single underlying array). Every frame, useFrame advances the engine and
- * flags both attributes for GPU re-upload.
+ * Every grid shape (sphere/cube/torus/pyramid) shares one vertex count, so
+ * retargeting between them is just ShapeMorphSource.setTarget() — a smooth
+ * lerp, no geometry change. The head doesn't share that vertex count (it's
+ * sampled from its own mesh, see core/mesh-sampling.ts), so retarget() must
+ * handle both cases:
+ *  - same vertex count: unchanged fast path, just setTarget() on the live source.
+ *  - different vertex count: no per-vertex correspondence is possible, so
+ *    rebuild a fresh engine + geometries sized for the new formation (and
+ *    dispose the old ones — three.js doesn't garbage-collect GPU buffers on
+ *    its own), snap directly to it, and cross-fade opacity in so the swap
+ *    isn't a jarring pop.
  *
- * Note: we use the plain `THREE.BufferAttribute` constructor here, not the
- * convenience `Float32BufferAttribute` — that subclass copies its input into
- * a new array, which would silently detach the attribute from
- * `engine.positions` and freeze it at whatever values existed when the
- * geometry was built (all zeros, since MorphEngine hasn't ticked yet).
+ * MorphEngine's actual source is a CompositeMorphSource of shapeMorphSource
+ * + a LipSyncSource (ADR-001 §2 addendum) — both run every tick, so shape
+ * morphing and mouth animation coexist without either one owning the engine.
  *
- * The wireframe's edge index is set once, from the initial formation, and
- * never touches again: every shape in the registry shares the same grid
- * topology (core/grid.ts), so edges never change — only positions do.
- * `retarget()` lets a caller (Scene.tsx, reacting to the shape store) morph
- * toward a different formation without rebuilding any geometry.
+ * `state` (engine/sources/geometries together) is a single React state value —
+ * `pointsGeometry`/`wireframeGeometry`/`occluderGeometry` must be state so
+ * Scene.tsx's JSX (`<points geometry={...}>`) re-renders when a rebuild swaps
+ * them for new objects. `retarget()` (called from an effect, not during
+ * render) needs to read the *current* state imperatively, so it's mirrored
+ * into `stateRef` — but that mirroring happens as a plain assignment in the
+ * render body below, not inside the `useState` lazy initializer. Doing it in
+ * the initializer looks tempting but is a real bug: React (Strict Mode, in
+ * dev) may invoke a lazy initializer twice and keep only one result, so a
+ * side effect inside it can point the ref at a *different* engine than the
+ * one actually rendered — useFrame then ticks one engine's positions while
+ * the JSX shows another's (frozen, all-zero) geometry. A plain assignment
+ * every render can't desync like that: it always reflects whatever state
+ * React just committed.
  */
 export function useMorphEngine(initialFormation: Formation) {
-  const { engine, source, pointsGeometry, wireframeGeometry } = useMemo(() => {
-    const vertexCount = initialFormation.positions.length / 3
-    const source = new ShapeMorphSource(initialFormation.positions, MORPH_DURATION_SEC)
-    const engine = new MorphEngine(vertexCount, source)
+  const [state, setState] = useState(() => buildEngineState(initialFormation))
+  const stateRef = useRef(state)
+  stateRef.current = state
 
-    const pointsGeometry = new BufferGeometry()
-    pointsGeometry.setAttribute('position', new BufferAttribute(engine.positions, 3))
+  const [opacity, setOpacity] = useState(1)
+  const fadeElapsedRef = useRef(-1) // -1 = not fading
 
-    const wireframeGeometry = new BufferGeometry()
-    wireframeGeometry.setAttribute('position', new BufferAttribute(engine.positions, 3))
-    wireframeGeometry.setIndex(new BufferAttribute(initialFormation.edges, 1))
+  useFrame((_r3fState, dt) => {
+    const current = stateRef.current
+    current.engine.tick(dt)
+    current.pointsGeometry.attributes.position.needsUpdate = true
+    current.wireframeGeometry.attributes.position.needsUpdate = true
+    current.occluderGeometry.attributes.position.needsUpdate = true
 
-    return { engine, source, pointsGeometry, wireframeGeometry }
-    // Deliberately built once, ignoring changes to initialFormation: switching
-    // shapes later goes through retarget(), not a re-run of this setup.
-    // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  useFrame((_state, dt) => {
-    engine.tick(dt)
-    pointsGeometry.attributes.position.needsUpdate = true
-    wireframeGeometry.attributes.position.needsUpdate = true
+    if (fadeElapsedRef.current >= 0) {
+      fadeElapsedRef.current += dt
+      const t = Math.min(fadeElapsedRef.current / FADE_DURATION_SEC, 1)
+      setOpacity(t)
+      if (t >= 1) fadeElapsedRef.current = -1
+    }
   })
 
-  const retarget = useCallback((formation: Formation) => source.setTarget(formation.positions), [source])
+  const retarget = useCallback((formation: Formation) => {
+    const current = stateRef.current
 
-  return { pointsGeometry, wireframeGeometry, retarget }
+    const nextVertexCount = formation.positions.length / 3
+    if (nextVertexCount === current.engine.vertexCount) {
+      current.shapeMorphSource.setTarget(formation.positions)
+      return
+    }
+
+    current.pointsGeometry.dispose()
+    current.wireframeGeometry.dispose()
+    current.occluderGeometry.dispose()
+
+    fadeElapsedRef.current = 0
+    setOpacity(0)
+    setState(buildEngineState(formation))
+  }, [])
+
+  return {
+    pointsGeometry: state.pointsGeometry,
+    wireframeGeometry: state.wireframeGeometry,
+    occluderGeometry: state.occluderGeometry,
+    opacity,
+    retarget,
+  }
 }

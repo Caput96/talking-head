@@ -5,6 +5,7 @@ import './sphere'
 import './cube'
 import './torus'
 import './pyramid'
+import './head/head'
 
 export { shapeRegistry } from './ShapeRegistry'
 export type { ShapeFactory } from './ShapeFactory'

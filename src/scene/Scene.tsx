@@ -1,18 +1,26 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { OrbitControls } from '@react-three/drei'
+import { DoubleSide } from 'three'
 import { shapeRegistry } from '../shapes'
 import { useShapeStore } from '../store/shapeStore'
 import { useMorphEngine } from '../core/useMorphEngine'
 
 /**
- * Scene — Phase 2: renders whichever shape is selected in shapeStore, and
- * smoothly retargets the morph engine whenever the selection changes (driven
- * by ShapeSwitcher, outside the canvas). Points + wireframe still read the
- * single positions buffer owned by MorphEngine (see core/useMorphEngine);
- * only the target formation changes, never the geometry/topology.
+ * Scene — renders whichever shape is selected in shapeStore, and retargets
+ * the morph engine whenever the selection changes (driven by ShapeSwitcher,
+ * outside the canvas). Most shapes share one vertex count and morph smoothly
+ * into each other; the head doesn't, so useMorphEngine may swap the geometry
+ * objects entirely on that transition — `opacity` cross-fades that swap in
+ * rather than letting it pop (see core/useMorphEngine.ts).
+ *
+ * `showOcclusion` (toggled by OcclusionToggle, outside the canvas) renders an
+ * invisible surface (`colorWrite: false`, still writes depth) so the far
+ * side of a shape stops showing through the near side — nothing new becomes
+ * *visible*, points/edges just get correctly occluded like any opaque object.
  */
 export function Scene() {
   const currentShapeId = useShapeStore((state) => state.currentShapeId)
+  const showOcclusion = useShapeStore((state) => state.showOcclusion)
 
   // Read the store once, outside React's reactivity, to seed the very first
   // formation — the effect below handles every change *after* that.
@@ -20,7 +28,8 @@ export function Scene() {
     () => shapeRegistry.get(useShapeStore.getState().currentShapeId).create(),
     [],
   )
-  const { pointsGeometry, wireframeGeometry, retarget } = useMorphEngine(initialFormation)
+  const { pointsGeometry, wireframeGeometry, occluderGeometry, opacity, retarget } =
+    useMorphEngine(initialFormation)
 
   const isFirstRender = useRef(true)
   useEffect(() => {
@@ -33,11 +42,20 @@ export function Scene() {
 
   return (
     <>
+      {showOcclusion && (
+        <mesh geometry={occluderGeometry}>
+          {/* colorWrite: false — writes depth so far-side geometry fails the
+              depth test, but is never itself visible. side=DoubleSide avoids
+              needing consistent triangle winding across every shape source
+              (procedural grid vs. sampled mesh). */}
+          <meshBasicMaterial colorWrite={false} side={DoubleSide} />
+        </mesh>
+      )}
       <points geometry={pointsGeometry}>
-        <pointsMaterial size={0.04} color="#7dd3fc" sizeAttenuation />
+        <pointsMaterial size={0.04} color="#7dd3fc" sizeAttenuation transparent opacity={opacity} />
       </points>
       <lineSegments geometry={wireframeGeometry}>
-        <lineBasicMaterial color="#38507a" />
+        <lineBasicMaterial color="#38507a" transparent opacity={opacity} />
       </lineSegments>
 
       {/* Drei's OrbitControls: drag to rotate, scroll to zoom, right-drag to pan. */}
