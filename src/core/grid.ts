@@ -22,13 +22,9 @@ export interface Formation {
   edges: Uint32Array
   /** Triangle indices (3 per face) — the invisible occlusion surface that
    * stops the far side of a shape from showing through the near side (see
-   * core/useMorphEngine.ts). Required, unlike mouthGroup: every shape needs
-   * one for occlusion to work uniformly, with no shape-specific case. */
+   * core/useMorphEngine.ts). Every shape needs one for occlusion to work
+   * uniformly, with no shape-specific case. */
   faces: Uint32Array
-  /** Vertex indices making up the mouth (ADR-001 §3). Only the head shape
-   * sets this — MorphEngine/ShapeMorphSource never look at it; it exists to
-   * be read later by LipSyncSource (Phase 5). */
-  mouthGroup?: Uint32Array
 }
 
 export type SurfaceFn = (u: number, v: number) => readonly [number, number, number]

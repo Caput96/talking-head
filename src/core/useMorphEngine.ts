@@ -2,44 +2,37 @@ import { useCallback, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { BufferAttribute, BufferGeometry } from 'three'
 import { MorphEngine } from './MorphEngine'
-import { getAudioBus } from './AudioBus'
 import { ShapeMorphSource } from '../sources/ShapeMorphSource'
-import { LipSyncSource } from '../sources/LipSyncSource'
 import { CompositeMorphSource } from '../sources/CompositeMorphSource'
 import type { Formation } from './grid'
 
 const MORPH_DURATION_SEC = 1.2
 const FADE_DURATION_SEC = 0.25
-const NO_MOUTH = new Uint32Array(0)
 
 interface EngineState {
   engine: MorphEngine
   shapeMorphSource: ShapeMorphSource
   pointsGeometry: BufferGeometry
   wireframeGeometry: BufferGeometry
-  /** Invisible (colorWrite: false) surface a caller can render so the far
-   * side of a shape stops showing through the near side — see Scene.tsx. */
+  /** Triangle-indexed surface a caller can render as a real filled surface
+   * (the "Solid" toggle) — see Scene.tsx. Once opaque-ish, it occludes the
+   * far side of a shape as a side effect of being real geometry with real
+   * depth, not via an invisible colorWrite:false trick. */
   occluderGeometry: BufferGeometry
 }
 
 function buildEngineState(formation: Formation): EngineState {
   const vertexCount = formation.positions.length / 3
   const shapeMorphSource = new ShapeMorphSource(formation.positions, MORPH_DURATION_SEC)
-  // Runs after shapeMorphSource each tick (see CompositeMorphSource) so it can
-  // nudge the mouth vertices' *rest* positions that frame, not fight them.
-  // Rebuilt fresh here rather than updated in place: any formation whose
-  // mouth group could change already goes through this rebuild path (see
-  // this hook's doc comment on vertex-count mismatches), so there's no case
-  // where an existing LipSyncSource needs a live mouth-group swap.
-  const lipSyncSource = new LipSyncSource(
-    formation.mouthGroup ?? NO_MOUTH,
-    formation.positions,
-    getAudioBus(),
-  )
-  const engine = new MorphEngine(
-    vertexCount,
-    new CompositeMorphSource([shapeMorphSource, lipSyncSource]),
-  )
+  // Wrapped in CompositeMorphSource even though it's the only source now:
+  // amplitude-driven lip-sync (the old LipSyncSource) used to run alongside it
+  // here, and was removed once ADR-003's viseme-driven morph-weight path
+  // (head/HeadGLB.tsx) took over mouth animation entirely — see ADR-001's
+  // updated addendum. Left wrapped rather than passing shapeMorphSource to
+  // MorphEngine directly, since CLAUDE.md's roadmap already names the next
+  // source expected to join this list (a future AgentStateSource driving
+  // assistant motion) — this is the one line that'll change when it lands.
+  const engine = new MorphEngine(vertexCount, new CompositeMorphSource([shapeMorphSource]))
 
   const pointsGeometry = new BufferGeometry()
   pointsGeometry.setAttribute('position', new BufferAttribute(engine.positions, 3))
@@ -70,9 +63,11 @@ function buildEngineState(formation: Formation): EngineState {
  *    its own), snap directly to it, and cross-fade opacity in so the swap
  *    isn't a jarring pop.
  *
- * MorphEngine's actual source is a CompositeMorphSource of shapeMorphSource
- * + a LipSyncSource (ADR-001 §2 addendum) — both run every tick, so shape
- * morphing and mouth animation coexist without either one owning the engine.
+ * MorphEngine's actual source is a CompositeMorphSource wrapping
+ * shapeMorphSource (ADR-001 §2 addendum) — a single-source list today, kept
+ * wrapped rather than passed to MorphEngine directly because the addendum
+ * anticipates a second source (mouth animation used to be one; see
+ * buildEngineState's comment) joining it again later.
  *
  * `state` (engine/sources/geometries together) is a single React state value —
  * `pointsGeometry`/`wireframeGeometry`/`occluderGeometry` must be state so

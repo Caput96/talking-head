@@ -1,4 +1,4 @@
-/* Floated top-left, clear of OcclusionToggle (top-right) and
+/* Floated top-left, clear of FillToggle (top-right) and
    ShapeSwitcher (bottom-center). */
 .tts-panel {
   position: fixed;

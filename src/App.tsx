@@ -1,8 +1,10 @@
 import { Canvas } from '@react-three/fiber'
 import { Scene } from './scene/Scene'
 import { ShapeSwitcher } from './ui/ShapeSwitcher'
-import { OcclusionToggle } from './ui/OcclusionToggle'
+import { FillToggle } from './ui/FillToggle'
 import { TTSPanel } from './ui/TTSPanel'
+import { VisemePanel } from './ui/VisemePanel'
+import { AppearancePanel } from './ui/AppearancePanel'
 import './App.css'
 
 /**
@@ -12,7 +14,7 @@ import './App.css'
  * WebGL renderer, a default camera and a render loop, then mounts everything we
  * put inside it into a three.js scene graph. Anything 3D goes *inside* <Canvas>;
  * regular DOM/UI (buttons, panels) goes outside it — <ShapeSwitcher>,
- * <OcclusionToggle> and <TTSPanel> are plain HTML, rendered as siblings of
+ * <FillToggle> and <TTSPanel> are plain HTML, rendered as siblings of
  * <Canvas>, not children.
  */
 function App() {
@@ -22,8 +24,10 @@ function App() {
         <Scene />
       </Canvas>
       <ShapeSwitcher />
-      <OcclusionToggle />
+      <FillToggle />
       <TTSPanel />
+      <VisemePanel />
+      <AppearancePanel />
     </>
   )
 }

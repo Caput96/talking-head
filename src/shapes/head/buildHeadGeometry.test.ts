@@ -25,22 +25,4 @@ describe('buildHeadGeometry', () => {
 
     expect(geometry.getIndex()).not.toBeNull()
   })
-
-  it('tags a non-empty, unique, in-bounds mouth group in the lower-front region', () => {
-    const { geometry, mouthGroup } = buildHeadGeometry()
-    const position = geometry.getAttribute('position')
-
-    expect(mouthGroup.length).toBeGreaterThan(0)
-    expect(new Set(mouthGroup).size).toBe(mouthGroup.length) // no duplicates
-
-    for (const i of mouthGroup) {
-      expect(i).toBeGreaterThanOrEqual(0)
-      expect(i).toBeLessThan(position.count)
-
-      const y = position.getY(i)
-      const z = position.getZ(i)
-      expect(y).toBeLessThan(0) // lower half of the head
-      expect(z).toBeGreaterThan(0) // front-facing, not the back of the skull
-    }
-  })
 })

@@ -1,6 +1,6 @@
 /* A single button, floated top-right so it doesn't collide with the
    ShapeSwitcher row anchored at the bottom. */
-.occlusion-toggle {
+.fill-toggle {
   position: fixed;
   top: 24px;
   right: 24px;
@@ -14,7 +14,7 @@
   cursor: pointer;
 }
 
-.occlusion-toggle[aria-pressed='true'] {
+.fill-toggle[aria-pressed='true'] {
   background: #38507a;
   color: #fff;
 }

@@ -14,7 +14,7 @@ import type { Formation } from './grid'
  * lets a real, independently-topologized shape (the head) plug into the
  * same Formation contract everything else already uses.
  */
-export function sampleMesh(geometry: BufferGeometry, mouthGroup?: Uint32Array): Formation {
+export function sampleMesh(geometry: BufferGeometry): Formation {
   const positionAttr = geometry.getAttribute('position')
   const index = geometry.getIndex()
   if (!index) throw new Error('sampleMesh requires an indexed geometry')
@@ -25,6 +25,5 @@ export function sampleMesh(geometry: BufferGeometry, mouthGroup?: Uint32Array): 
     // The mesh's own triangle index already *is* a valid face list — unlike
     // edges (deduplicated pairs), it needs no processing.
     faces: new Uint32Array(index.array),
-    mouthGroup,
   }
 }

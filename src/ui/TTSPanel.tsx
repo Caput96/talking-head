@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { BrowserTTSProvider } from '../tts/BrowserTTSProvider'
-import { getAudioContext } from '../tts/audioContext'
-import { getAudioBus } from '../core/AudioBus'
+import { getWawaLipsync } from '../head/wawaLipsync'
 import { KOKORO_VOICES } from '../tts/kokoroVoices'
 import './TTSPanel.css'
 
@@ -9,12 +8,17 @@ const LANGUAGE_LABELS = { 'en-us': 'American English', 'en-gb': 'British English
 
 /**
  * TTSPanel — plain DOM UI (not R3F/three), rendered *outside* <Canvas> in
- * App.tsx, like ShapeSwitcher/OcclusionToggle. A minimal proof that
+ * App.tsx, like ShapeSwitcher/FillToggle. A minimal proof that
  * TTSProvider works end-to-end: type text, pick a voice, hear it spoken.
- * Playback is routed through the shared AudioBus (core/AudioBus.ts) rather
- * than straight to the speakers, so LipSyncSource can read its loudness and
- * animate the head's mouth (Phase 5) while it plays — see
- * core/useMorphEngine.ts.
+ *
+ * Playback is routed through the wawa-lipsync bridge (head/wawaLipsync.ts),
+ * not straight to the speakers, so its real-time viseme analysis can drive
+ * the GLB head's mouth (see head/HeadGLB.tsx) while audio plays — that
+ * bridge owns its own audio graph and destination (see its doc comment),
+ * so it's the ONLY thing that plays this AudioBuffer; nothing else may also
+ * play it or the utterance would sound doubled. TTSPanel doesn't know or
+ * care which shape is currently selected — same shape-agnostic design as
+ * the rest of the TTS/lip-sync pipeline (ADR-001).
  *
  * The voice picker only offers English voices/accents, not languages — see
  * tts/kokoroVoices.ts's doc comment for why kokoro-js doesn't support the
@@ -37,10 +41,7 @@ export function TTSPanel() {
     setError(null)
     try {
       const result = await provider.synthesize(text, { voice })
-      const source = getAudioContext().createBufferSource()
-      source.buffer = result.audio
-      getAudioBus().connect(source)
-      source.start()
+      getWawaLipsync().play(result.audio)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
