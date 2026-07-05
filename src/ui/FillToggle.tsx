@@ -1,25 +1,27 @@
 import { useAppearanceStore } from '../store/appearanceStore'
-import './OcclusionToggle.css'
+import './FillToggle.css'
 
 /**
- * OcclusionToggle — plain DOM UI (not R3F/three), rendered *outside* <Canvas>
- * in App.tsx, like ShapeSwitcher. Switches whether the invisible occluder
- * mesh renders (see core/useMorphEngine.ts, scene/Scene.tsx): on hides
- * far-side points/edges behind the near side of the shape, off shows
- * everything ("x-ray" style, today's original look).
+ * FillToggle — plain DOM UI (not R3F/three), rendered *outside* <Canvas>
+ * in App.tsx, like ShapeSwitcher. Switches whether the shape's triangles
+ * render as a real filled surface (see scene/Scene.tsx, head/HeadGLB.tsx):
+ * on shows a flat-colored solid, off shows just points/wireframe ("x-ray"
+ * style, today's original look). Occlusion of far-side points/edges is a
+ * side effect of the fill being a real, opaque-ish surface now — not a
+ * separate invisible depth-only trick like the old OcclusionToggle used.
  */
-export function OcclusionToggle() {
-  const showOcclusion = useAppearanceStore((state) => state.showOcclusion)
-  const toggleOcclusion = useAppearanceStore((state) => state.toggleOcclusion)
+export function FillToggle() {
+  const showFill = useAppearanceStore((state) => state.showFill)
+  const toggleFill = useAppearanceStore((state) => state.toggleFill)
 
   return (
     <button
       type="button"
-      className="occlusion-toggle"
-      aria-pressed={showOcclusion}
-      onClick={toggleOcclusion}
+      className="fill-toggle"
+      aria-pressed={showFill}
+      onClick={toggleFill}
     >
-      {showOcclusion ? 'Solid' : 'Wireframe'}
+      {showFill ? 'Solid' : 'Wireframe'}
     </button>
   )
 }
