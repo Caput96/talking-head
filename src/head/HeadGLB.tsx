@@ -15,6 +15,8 @@ import {
 } from 'three'
 import { deriveEdgeIndices } from '../core/mesh-topology'
 import { useDebugStore } from '../store/debugStore'
+import { getWawaLipsync } from './wawaLipsync'
+import { HeadMorphController } from './headMorphController'
 // `?url` asks Vite for the fingerprinted URL of the asset (see vite/client
 // types) rather than inlining it — the GLB lives at the repo root, which Vite
 // doesn't serve, so we hand this URL to useGLTF.
@@ -31,9 +33,14 @@ import headUrl from '../../assets/head.glb?url'
  * still drives the parametric grid shapes). Keeping the two apart is the whole
  * point of the boundary in ADR-003.
  *
- * Step 1 (this commit) is audio-free: a manual slider (debugStore, via
- * VisemePanel) drives one viseme weight, purely to verify the exported morph
- * targets actually deform the mesh in three.js before any lip-sync exists.
+ * Two mouth drivers, mutually exclusive per frame:
+ *  - Manual (Step 1): the VisemePanel slider (debugStore) drives one viseme
+ *    weight by hand — how we first verified the exported morphs deform
+ *    correctly, before any audio/lip-sync existed.
+ *  - Live (Step 2/3): once TTSPanel has played at least one utterance through
+ *    the wawa-lipsync bridge (head/wawaLipsync.ts), its live dominant viseme
+ *    takes over every frame, eased across all 15 targets by
+ *    HeadMorphController. This is a one-way handoff — see the useFrame below.
  */
 
 // useGLTF caches parsed GLBs by URL; preload warms that cache at import time so
@@ -142,6 +149,10 @@ export function HeadGLB({ showOcclusion }: { showOcclusion: boolean }) {
     return { points, line, occluder, position, scale }
   }, [scene])
 
+  // Owns the eased 15-target weights for the live/audio-driven path. Created
+  // once per mount so its smoothing state doesn't reset every frame.
+  const morphController = useMemo(() => new HeadMorphController(), [])
+
   // Dispose the objects WE created on unmount (e.g. switching away from the
   // head). The shared GLTF geometry is owned by useGLTF's cache — don't touch
   // it — but the wireframe geometry and both materials are ours.
@@ -154,17 +165,29 @@ export function HeadGLB({ showOcclusion }: { showOcclusion: boolean }) {
     }
   }, [points, line, occluder])
 
-  // Pull model (same precedent as AudioBus / useMorphEngine): read the slider
-  // imperatively each frame instead of subscribing. Zero every influence, then
-  // apply the selected one, so switching visemes doesn't leave a target stuck on.
-  useFrame(() => {
-    const { debugViseme, debugWeight } = useDebugStore.getState()
+  // Pull model (same precedent as AudioBus / useMorphEngine): read both
+  // drivers imperatively each frame instead of subscribing.
+  useFrame((_state, dt) => {
     const influences = points.morphTargetInfluences
     const dictionary = points.morphTargetDictionary
     if (!influences || !dictionary) return
     influences.fill(0)
-    const index = dictionary[debugViseme]
-    if (index !== undefined) influences[index] = debugWeight
+
+    // getViseme() returns null only until the very first TTS utterance has
+    // played through the wawa bridge — from then on it always returns a
+    // viseme (silence included), so this handoff to the live driver is
+    // permanent for the rest of the session once speech has started.
+    const wawaViseme = getWawaLipsync().getViseme()
+    if (wawaViseme !== null) {
+      for (const [target, weight] of morphController.update(dt, wawaViseme)) {
+        const index = dictionary[target]
+        if (index !== undefined) influences[index] = weight
+      }
+    } else {
+      const { debugViseme, debugWeight } = useDebugStore.getState()
+      const index = dictionary[debugViseme]
+      if (index !== undefined) influences[index] = debugWeight
+    }
   })
 
   // Outer group only rotates the head to face the camera; the inner group
