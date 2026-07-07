@@ -1,0 +1,20 @@
+{
+  // Types-only package (ADR-004 §2). We never emit JS here — consumers resolve
+  // the TypeScript source directly via the bundler. `DOM` is in `lib` because
+  // the contracts reference browser types (AudioBuffer) that the /web-side
+  // providers pass across the seam.
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["ES2023", "DOM"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "skipLibCheck": true
+  },
+  "include": ["src"]
+}

@@ -85,3 +85,51 @@ Deleted `core/AudioBus.ts` and `sources/LipSyncSource.ts` (+ tests), and the
 roadmap already names the next source expected to join it (a future
 `AgentStateSource`). ADR-001 and ADR-003 both got addenda reflecting this;
 see ADR-001's updated §2/§5 addenda for the full reasoning.
+
+## 2026-07-07 — Monorepo migration, and ADR-002's single-project constraint retires (ADR-004, slice 1)
+
+**The decision moment.** ADR-002 set a standing constraint — the repo stays a
+**single Vite project, not a monorepo**, *until a server is actually
+introduced*, at which point "that transition gets its own dedicated ADR." ADR-004
+introduces a local TTS/STT server, so that trigger is now met: this is where the
+constraint is **explicitly retired**, not silently broken. This first slice does
+only the structural half — moving the app under `/web` with **no behavior
+change** — and deliberately stops short of any server, Python, or provider
+implementations (those are later ADR-004 slices).
+
+**What moved.** The whole Vite app (`src/`, `public/`, `assets/`, `index.html`,
+`vite.config.ts`, the three tsconfigs, `.oxlintrc.json`) went under `/web` via
+`git mv`. New: `pnpm-workspace.yaml`; a root `package.json` that only delegates
+(`pnpm --filter web …`, `pnpm -r typecheck`); a `/server` README stub; and
+`/packages/contracts` holding the **types-only** `TTSProvider` / `STTProvider`
+seams (ADR-004 §2), not yet consumed by `/web` — its local `TTSProvider.ts` was
+left untouched so nothing about runtime behavior shifts. Native pnpm workspaces,
+no Turborepo/Nx: one buildable app and no cross-package build graph to
+orchestrate yet.
+
+**The one real snag — R3F's JSX types vanished under pnpm.** After the move,
+`tsc` reported every three.js element (`<mesh>`, `<group>`, `<points>`…) as
+missing from `JSX.IntrinsicElements`. Root cause, confirmed by reproducing a
+clean typecheck on the pre-move commit in a throwaway worktree: `@react-three/
+fiber` adds those elements through a `declare module 'react' / 'react/jsx-runtime'`
+augmentation, and for that augmentation to *bind*, `tsc` must resolve
+`@types/react` by walking up from fiber's deep location in pnpm's isolated store.
+In the single-project layout `@types/react` sat in the root `node_modules` and
+was reachable; once every dep moved into `/web`, the workspace root had none, so
+`@types/react` was exposed nowhere fiber could see it and the augmentation
+silently dropped. Fix: a root `.npmrc` public-hoisting the React type packages
+(`public-hoist-pattern[]=@types/react` / `@types/react-dom`), restoring a
+reachable `@types/react` without loosening isolation for anything else. (A fresh
+CI install picks this up on first run; an *existing* `node_modules` needed
+`pnpm install --force` to re-link.)
+
+**Verified behavior-preserving.** `pnpm typecheck` (web + contracts), `lint`,
+`test` (35 tests), and `build` all green from the new paths, and a headless
+browser drive confirmed the app boots, renders the point-cloud+wireframe head,
+and morphs sphere→cube with zero console errors — identical to before.
+
+**Doc/reality mismatch surfaced.** ADR-003 (§ line 75) references
+`scripts/validate-head-glb.mjs` as a "permanent asset-pipeline guard," but that
+script was never actually created — it exists nowhere in the repo. Noted here;
+left as-is (neither created nor edited) since it's outside this migration's
+scope.
