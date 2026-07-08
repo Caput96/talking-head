@@ -277,3 +277,54 @@ still works; re-downloaded 1.7B-CustomVoice → `instruct:true`, box appears, an
 (103 KB vs 134 KB) — the prompt genuinely changes delivery. Then deleted the
 1.7B again (0.6B stays default). The MLX backend only forwards `instruct` when
 `supports_instruct()`, so an unsupported model is never fed a stray prompt.
+
+## 2026-07-08 — STT seam + StubSTTBackend (ADR-004 slice STT-a)
+
+ADR-004's other half: `STTProvider`, the mirror image of `TTSProvider`
+(`transcribe(audio) => Transcript` instead of `synthesize(text) => audio`). Same
+rhythm as the TTS side — a stub first, because the genuinely new risk here isn't
+a model, it's the plumbing: this is the **first flow where the browser sends
+audio to the server** (every TTS flow runs the other way).
+
+**Transport, symmetric not identical.** TTS is JSON-in/WAV-out; STT is WAV-in/
+JSON-out — audio always travels as raw WAV bytes (never base64-in-JSON, ~33 %
+bloat for nothing). `POST /transcribe?language=auto` takes a raw `audio/wav`
+body, returns `{text, language}`; `GET /stt/capabilities` returns
+`{languages: string[]}` (empty for the stub). `/health` now reports
+`{tts_backend, stt_backend}` separately since one process runs two independent
+backends — a deliberate small breaking change to that payload, nothing external
+depended on the old single `backend` field yet.
+
+**New on the client: capturing the mic.** `STTPanel` is the first place this app
+touches `getUserMedia`/`MediaRecorder`. Record → `MediaRecorder` (first
+supported mimeType from a candidate list, webm/opus preferred) → Stop → the
+recorded `Blob` goes through the *same* `AudioContext.decodeAudioData`
+`ServerTTSProvider` already uses for playback, just in reverse — decoding
+whatever the mic recorder produced into an `AudioBuffer`, which is exactly what
+`STTProvider.transcribe()` takes. `web/src/stt/encodeWav.ts` (new) then
+re-encodes that `AudioBuffer` to 16-bit PCM WAV client-side — the mirror of the
+server's existing `encode_wav`, now needed in the other direction for the first
+time — before POSTing.
+
+**`StubSTTBackend`** does no recognition at all: it returns a fixed string
+reporting how many seconds of audio it received
+(`"(stub transcript — 1.3s of audio received)"`). That's enough to prove the
+whole round trip (mic → WAV → POST → JSON → UI) without a model, the same way
+the TTS stub's tone bursts proved playback without a voice.
+
+**No STTProvider factory.** Unlike TTS, which had two providers (browser/server)
+from day one, `ServerSTTProvider` is the only implementation — ADR-004 doesn't
+plan a zero-setup in-browser STT fallback (mature options run server-side). So
+`STTPanel` instantiates it directly; a `createSTTProvider` factory would be a
+premature abstraction with nothing to select between yet.
+
+Verified: `uv run pytest` green (stub STT tests + updated `/health` test);
+`curl -X POST --data-binary @wav.wav -H 'content-type: audio/wav'
+'localhost:8000/transcribe?language=italian'` → the stub text with
+`language: "italian"`; browser round trip via `STTPanel` (Record → speak →
+Stop) confirmed headlessly (Chromium's fake-mic flags) — transcript renders,
+one `POST /transcribe` → 200, no console errors.
+
+**Not in this slice:** real MLX-Whisper backend (slice STT-b, separate
+follow-up — model size choice + RTF measured on this machine, same pattern as
+the TTS 0.6B/1.7B bench), no conversation loop, no portable whisper.cpp backend.

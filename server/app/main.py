@@ -1,17 +1,19 @@
-"""FastAPI app exposing the local TTS HTTP seam (ADR-004 §4).
+"""FastAPI app exposing the local TTS + STT HTTP seams (ADR-004 §4).
 
-/web's ServerTTSProvider is a thin HTTP adapter over `POST /synthesize`. The
-response is opaque `audio/wav` bytes — no JSON envelope and no phoneme timing:
-ADR-003 derives visemes from the produced audio at playback, so the wire contract
-carries no timing burden. The browser only ever talks to localhost.
+/web's ServerTTSProvider is a thin HTTP adapter over `POST /synthesize`
+(JSON in, opaque `audio/wav` bytes out); `ServerSTTProvider` is the mirror over
+`POST /transcribe` (raw `audio/wav` bytes in, JSON out). Neither carries
+phoneme/timing data: ADR-003 derives visemes from the produced audio at
+playback, so the wire contract carries no timing burden either way. The
+browser only ever talks to localhost.
 """
 
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from .audio import encode_wav
-from .backends import get_backend, get_backend_name
+from .audio import decode_wav, encode_wav
+from .backends import get_backend, get_backend_name, get_stt_backend, get_stt_backend_name
 
 app = FastAPI(title="3d.head TTS server", version="0.0.0")
 
@@ -25,8 +27,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# One backend instance for the process, chosen from config (TTS_BACKEND).
+# One backend instance per capability for the process, each chosen from config
+# (TTS_BACKEND / STT_BACKEND independently — either can be stub or mlx).
 _backend = get_backend()
+_stt_backend = get_stt_backend()
 
 
 class SynthesizeRequest(BaseModel):
@@ -43,7 +47,10 @@ class SynthesizeRequest(BaseModel):
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "backend": get_backend_name()}
+    # Two independent backends now live behind one process, so each gets its
+    # own key (this replaces the old single "backend" field — nothing external
+    # depends on it yet, only tests, updated alongside this).
+    return {"status": "ok", "tts_backend": get_backend_name(), "stt_backend": get_stt_backend_name()}
 
 
 @app.get("/capabilities")
@@ -74,3 +81,21 @@ def synthesize(req: SynthesizeRequest) -> Response:
     )
     wav = encode_wav(audio.samples, audio.sample_rate)
     return Response(content=wav, media_type="audio/wav")
+
+
+@app.get("/stt/capabilities")
+def stt_capabilities() -> dict[str, object]:
+    # Mirrors GET /capabilities for TTS, namespaced under /stt since the two
+    # capabilities can advertise unrelated things (STT has no voices/instruct).
+    return {"languages": _stt_backend.languages()}
+
+
+@app.post("/transcribe")
+async def transcribe(request: Request, language: str | None = None) -> dict[str, object]:
+    # Audio arrives as a raw WAV body, not JSON — base64-in-JSON would cost
+    # ~33% extra bytes for no benefit. `language` rides as a query param
+    # instead, since it's the only other input and doesn't justify multipart.
+    wav_bytes = await request.body()
+    samples, sample_rate = decode_wav(wav_bytes)
+    transcript = _stt_backend.transcribe(samples, sample_rate, language=language)
+    return {"text": transcript.text, "language": transcript.language}

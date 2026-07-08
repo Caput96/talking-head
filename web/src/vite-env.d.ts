@@ -10,7 +10,9 @@
 interface ImportMetaEnv {
   /** 'server' selects ServerTTSProvider; anything else → BrowserTTSProvider. */
   readonly VITE_TTS_PROVIDER?: string
-  /** Base URL of the local /server (defaults to http://localhost:8000). */
+  /** Base URL of the local /server (defaults to http://localhost:8000). One
+   * process, two capabilities — also used by ServerSTTProvider/STTPanel, not
+   * just TTS, despite the name. */
   readonly VITE_TTS_SERVER_URL?: string
 }
 

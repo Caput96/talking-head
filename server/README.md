@@ -1,12 +1,13 @@
 # server — local TTS/STT inference process (ADR-004)
 
-A localhost HTTP service the `ServerTTSProvider` in `/web` talks to
-([ADR-004](../docs/adr/ADR-004-server-and-stt.md) §§1, 3–4). Runs entirely on the
-user's machine — the browser only ever reaches `localhost`.
+A localhost HTTP service the `ServerTTSProvider`/`ServerSTTProvider` in `/web`
+talk to ([ADR-004](../docs/adr/ADR-004-server-and-stt.md) §§1, 3–4). Runs
+entirely on the user's machine — the browser only ever reaches `localhost`.
 
-## Status (ADR-004 slice 2b)
+## Status
 
-Two interchangeable backends behind one seam, chosen by the `TTS_BACKEND` env:
+**TTS (slice 2b):** two interchangeable backends behind one seam, chosen by
+the `TTS_BACKEND` env:
 
 - **`stub`** (default) — `StubTTSBackend` returns a short deterministic tone (a
   few "syllable" bursts). No model, no MLX, zero setup — the CI-safe path and the
@@ -14,13 +15,22 @@ Two interchangeable backends behind one seam, chosen by the `TTS_BACKEND` env:
 - **`mlx`** — `MlxTTSBackend` runs **real Qwen3-TTS** on Apple Silicon via
   `mlx-audio`. macOS-only; opt-in.
 
+**STT (slice STT-a):** the mirror seam, chosen by `STT_BACKEND`:
+
+- **`stub`** (default) — `StubSTTBackend` returns a fixed string reporting how
+  much audio it received. No model — proves the mic→server plumbing.
+- **`mlx`** — not implemented yet (`MlxWhisperBackend`, slice STT-b).
+
 ```
-/web ServerTTSProvider → POST /synthesize → {Stub|Mlx}TTSBackend → WAV
+/web ServerTTSProvider  → POST /synthesize  → {Stub|Mlx}TTSBackend    → WAV
       → /web decodeAudioData → AudioBuffer → wawa-lipsync → mouth
+
+/web ServerSTTProvider  → POST /transcribe  → {Stub|Mlx}STTBackend    → JSON
+      (mic → MediaRecorder → decodeAudioData → encodeWav, client-side)
 ```
 
-Swapping backends is config only — the HTTP contract, `ServerTTSProvider`, and
-`/web` are identical for both.
+Swapping backends is config only — the HTTP contract, the provider, and `/web`
+are identical for both, on either seam.
 
 ## Endpoints
 
@@ -33,7 +43,7 @@ Swapping backends is config only — the HTTP contract, `ServerTTSProvider`, and
   free-text tone/style prompt) is passed through only when the model supports it
   (see `/capabilities`), otherwise ignored.
 - `GET /capabilities` — `{ "voices": string[], "languages": string[], "instruct": boolean }`
-  the active backend offers, so `/web` builds a provider-correct picker (and
+  the active TTS backend offers, so `/web` builds a provider-correct picker (and
   conditionally a tone box) without hardcoding. For MLX these are introspected
   from the model (`supported_speakers` / `supported_languages`, and the
   instruct gate below), so this triggers a lazy model load on first call (and
@@ -44,20 +54,33 @@ Swapping backends is config only — the HTTP contract, `ServerTTSProvider`, and
   0.6B build** (`tts_model_size == "0b6"` ignores it); `false` for Base. So the
   default `0.6B-CustomVoice-8bit` reports `false` — switch `MLX_TTS_MODEL` to a
   1.7B CustomVoice or a VoiceDesign model to get tone control.
-- `GET /health` — `{ "status": "ok", "backend": "stub" | "mlx" }`.
+- `POST /transcribe?language=auto` — body: raw `audio/wav` bytes (16-bit PCM;
+  any sample rate — decoded server-side). Returns `200 application/json`
+  `{ "text": string, "language": string | null }`. `language` is a query param,
+  not a JSON field, since the body isn't JSON (audio never travels as
+  base64-in-JSON here, on either endpoint — that's a ~33% size penalty for no
+  benefit). Absent/`"auto"` lets the backend detect the language; the stub
+  ignores it and echoes back whatever hint it got, defaulting to `"auto"`.
+- `GET /stt/capabilities` — `{ "languages": string[] }` the active STT backend
+  offers (empty for the stub — no language control until a real model is
+  wired in).
+- `GET /health` — `{ "status": "ok", "tts_backend": "stub" | "mlx", "stt_backend": "stub" | "mlx" }`.
 
 ## Layout
 
-- `app/main.py` — FastAPI app, routes, CORS, backend selection.
-- `app/backends/base.py` — `TTSBackend` ABC + `SynthesizedAudio` (the seam the
-  stub and future `MlxTTSBackend` both implement; backend-agnostic).
-- `app/backends/stub.py` — `StubTTSBackend` (tone bursts).
+- `app/main.py` — FastAPI app, routes, CORS, backend selection (both seams).
+- `app/backends/base.py` — `TTSBackend`/`STTBackend` ABCs + `SynthesizedAudio`/
+  `Transcript` (the seams every backend implements; backend-agnostic).
+- `app/backends/stub.py` / `stub_stt.py` — `StubTTSBackend` (tone bursts) /
+  `StubSTTBackend` (fixed transcript string).
 - `app/backends/mlx.py` — `MlxTTSBackend` (Qwen3-TTS via mlx-audio; lazy load,
   deferred `mlx_audio` import so this stays importable without the extra).
-- `app/backends/__init__.py` — `get_backend()` factory, chosen by `TTS_BACKEND`
-  env (`stub` default, `mlx` opt-in).
-- `app/audio.py` — `encode_wav()` (transport concern, kept out of backends).
-- `scripts/bench_rtf.py` — measures real-time factor on this machine.
+- `app/backends/mlx_whisper.py` — not yet implemented (slice STT-b).
+- `app/backends/__init__.py` — `get_backend()`/`get_stt_backend()` factories,
+  chosen by `TTS_BACKEND`/`STT_BACKEND` env (`stub` default, `mlx` opt-in).
+- `app/audio.py` — `encode_wav()`/`decode_wav()` (transport concern, kept out
+  of backends — WAV both ways, so no backend ever touches the wire format).
+- `scripts/bench_rtf.py` — measures TTS real-time factor on this machine.
 
 ## Environment (uv)
 
@@ -121,12 +144,12 @@ honest.
 
 ## Contract agreement with /web
 
-Kept **by hand**, not code-generated. The request options (`voice`, `speed`)
-correspond to `TTSOptions` in
-[`packages/contracts/src/tts.ts`](../packages/contracts/src/tts.ts) — the
-canonical TS definition — and `SynthesizeRequest` in `app/main.py` mirrors them
-(three fields). The response is opaque WAV bytes, so there is no JSON response
-schema to generate: an OpenAPI → TypeScript codegen step would produce almost
-nothing while adding a build dependency on a running server. Revisit codegen when
-a capability returns a structured JSON body (STT `Transcript`, a later slice),
-where it actually earns its keep.
+Kept **by hand**, not code-generated. `SynthesizeRequest` (`app/main.py`)
+mirrors `TTSOptions` in
+[`packages/contracts/src/tts.ts`](../packages/contracts/src/tts.ts); the
+`/transcribe` response (`{text, language}`) mirrors `Transcript` in
+[`packages/contracts/src/stt.ts`](../packages/contracts/src/stt.ts). `/synthesize`
+returns opaque WAV bytes, so there's no schema to generate there. `/transcribe`
+*does* now return structured JSON — the trigger this note previously flagged for
+revisiting OpenAPI → TypeScript codegen — but it's still just two fields kept in
+sync by hand; not worth the build-time dependency on a running server yet.

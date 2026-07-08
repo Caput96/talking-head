@@ -1,16 +1,19 @@
 """Backend selection.
 
-`get_backend()` picks the concrete TTS engine *inside* the server, chosen by the
-`TTS_BACKEND` env var. This is the "backend" level of ADR-004 §3's two-level
-choice (the "provider" level — browser vs server — lives in /web). Only the stub
-exists in slice 2a; `MlxTTSBackend` slots in here additively in slice 2b, with
-no change to the provider, the HTTP contract, or /web.
+`get_backend()` / `get_stt_backend()` pick the concrete TTS/STT engine *inside*
+the server, chosen by the `TTS_BACKEND` / `STT_BACKEND` env vars — the "backend"
+level of ADR-004 §3's two-level choice (the "provider" level — browser vs
+server — lives in /web). Only the stubs exist for STT so far (slice STT-a);
+`MlxWhisperBackend` slots in here additively in slice STT-b, with no change to
+the provider, the HTTP contract, or /web — exactly how `MlxTTSBackend` slotted
+in for TTS.
 """
 
 import os
 
-from .base import TTSBackend
+from .base import STTBackend, TTSBackend
 from .stub import StubTTSBackend
+from .stub_stt import StubSTTBackend
 
 # Default Qwen3-TTS model: the 0.6B 8-bit **CustomVoice** build. CustomVoice —
 # not Base — is the multi-speaker variant that conditions on a fixed named
@@ -48,3 +51,17 @@ def get_backend() -> TTSBackend:
 
 def get_backend_name() -> str:
     return os.environ.get("TTS_BACKEND", "stub")
+
+
+def get_stt_backend() -> STTBackend:
+    # Only 'stub' exists in slice STT-a. 'mlx' (MlxWhisperBackend) slots in here
+    # additively in slice STT-b, the same way MlxTTSBackend slotted into
+    # get_backend() above — no change to the provider, contract, or /web.
+    name = os.environ.get("STT_BACKEND", "stub")
+    if name == "stub":
+        return StubSTTBackend()
+    raise ValueError(f"unknown STT_BACKEND={name!r} (available: 'stub')")
+
+
+def get_stt_backend_name() -> str:
+    return os.environ.get("STT_BACKEND", "stub")

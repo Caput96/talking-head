@@ -1,9 +1,12 @@
-"""WAV encoding — the server's transport concern, kept out of the backends.
+"""WAV encoding/decoding — the server's transport concern, kept out of the
+backends.
 
-Backends return float32 samples (app/backends/base.py); this turns them into the
-16-bit PCM WAV bytes the HTTP response carries. WAV because it is universal and
-the browser decodes it directly via `AudioContext.decodeAudioData` (see /web's
-ServerTTSProvider), needing no codec.
+TTS backends return float32 samples (app/backends/base.py); `encode_wav` turns
+them into the 16-bit PCM WAV bytes the `/synthesize` response carries. STT runs
+the same conversion in reverse: `decode_wav` reads the WAV bytes /web's
+`ServerSTTProvider` POSTs to `/transcribe` back into float32 samples an
+`STTBackend` can consume. WAV both ways because it's universal and the browser
+encodes/decodes it directly via Web Audio, needing no codec on either side.
 """
 
 import io
@@ -26,3 +29,19 @@ def encode_wav(samples: np.ndarray, sample_rate: int) -> bytes:
         wav.setframerate(sample_rate)
         wav.writeframes(pcm16.tobytes())
     return buffer.getvalue()
+
+
+def decode_wav(data: bytes) -> tuple[np.ndarray, int]:
+    """Decode 16-bit PCM WAV bytes into mono float32 samples in [-1, 1], the
+    inverse of `encode_wav`. Multi-channel input is averaged down to mono —
+    STT backends only ever see one channel."""
+    with wave.open(io.BytesIO(data), "rb") as wav:
+        sample_rate = wav.getframerate()
+        n_channels = wav.getnchannels()
+        raw = wav.readframes(wav.getnframes())
+
+    pcm16 = np.frombuffer(raw, dtype="<i2")
+    if n_channels > 1:
+        pcm16 = pcm16.reshape(-1, n_channels).mean(axis=1)
+    samples = (pcm16.astype(np.float32)) / 32767.0
+    return samples, sample_rate

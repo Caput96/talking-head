@@ -1,11 +1,12 @@
-"""The internal TTS backend seam.
+"""The internal TTS/STT backend seams.
 
-Every engine that runs inside the server implements `TTSBackend` — the stub now,
-`MlxTTSBackend` (Qwen3-TTS) in slice 2b. It is deliberately **backend-agnostic**:
-a backend returns raw audio samples, nothing engine-, model-, or platform-shaped
-crosses this boundary. The server layer (app/main.py) owns transport — encoding
-the samples to WAV for the HTTP response — so a new backend never touches the
-wire format, and MLX-specific types never leak toward /web (ADR-004 §2).
+Every engine that runs inside the server implements `TTSBackend` or `STTBackend`
+— the stub backends now, `MlxTTSBackend`/`MlxWhisperBackend` as the real engines.
+Both are deliberately **backend-agnostic**: a TTS backend returns raw audio
+samples, an STT backend returns plain text — nothing engine-, model-, or
+platform-shaped crosses either boundary. The server layer (app/main.py) owns
+transport — WAV encode/decode — so a new backend never touches the wire format,
+and MLX-specific types never leak toward /web (ADR-004 §2).
 """
 
 from abc import ABC, abstractmethod
@@ -52,3 +53,31 @@ class TTSBackend(ABC):
         """Whether this backend honors a free-text tone/style `instruct` prompt,
         so /web can conditionally show a "voice tone" box. False by default."""
         return False
+
+
+@dataclass
+class Transcript:
+    """An STT backend's output: the recognized text, plus whichever language it
+    actually used or detected (not necessarily the one requested — e.g. 'auto')."""
+
+    text: str
+    language: str | None = None
+
+
+class STTBackend(ABC):
+    @abstractmethod
+    def transcribe(
+        self,
+        samples: np.ndarray,
+        sample_rate: int,
+        *,
+        language: str | None = None,
+    ) -> Transcript:
+        """Turn mono float32 PCM samples (in [-1, 1]) into text. `language` is an
+        optional hint (e.g. 'auto' to let the backend detect it, or a specific
+        code to force it); a backend may ignore it (the stub does)."""
+
+    def languages(self) -> list[str]:
+        """The language hints this backend accepts. Empty by default (no
+        language control — /web then hides the language picker)."""
+        return []

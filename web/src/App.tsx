@@ -3,6 +3,7 @@ import { Scene } from './scene/Scene'
 import { ShapeSwitcher } from './ui/ShapeSwitcher'
 import { FillToggle } from './ui/FillToggle'
 import { TTSPanel } from './ui/TTSPanel'
+import { STTPanel } from './ui/STTPanel'
 import { VisemePanel } from './ui/VisemePanel'
 import { AppearancePanel } from './ui/AppearancePanel'
 import './App.css'
@@ -26,6 +27,7 @@ function App() {
       <ShapeSwitcher />
       <FillToggle />
       <TTSPanel />
+      <STTPanel />
       <VisemePanel />
       <AppearancePanel />
     </>

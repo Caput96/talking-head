@@ -10,7 +10,7 @@ client = TestClient(app)
 def test_health_ok() -> None:
     res = client.get("/health")
     assert res.status_code == 200
-    assert res.json() == {"status": "ok", "backend": "stub"}
+    assert res.json() == {"status": "ok", "tts_backend": "stub", "stt_backend": "stub"}
 
 
 def test_synthesize_returns_valid_wav() -> None:
