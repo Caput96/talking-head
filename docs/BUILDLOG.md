@@ -369,18 +369,25 @@ don't assume the latest docs" lesson.
 
 **RTF, measured on THIS M4 Pro (24 GB) — same 4-clip bench as TTS, input speech
 synthesized on the fly via the already-cached TTS backend (no extra download,
-doubles as an accuracy sanity check):**
+doubles as an accuracy sanity check).** First pass was run while the machine
+had other load on it; re-ran both once the machine was idle (below are the
+idle numbers — noticeably faster, and worth trusting over the first pass):
 
 | model | load+warmup | median RTF | vs real-time | transcription quality |
 |-------|-------------|-----------|--------------|------------------------|
-| small-mlx-8bit (default) | ~2.1 s | **0.090** | ~11× faster | near-perfect (one minor spacing slip on the longest clip) |
-| large-v3-turbo-q4 | ~32.2 s | **0.391** | ~2.6× faster | *worse* on the short clip ("kick-brown fox" for "quick brown fox") |
+| small-mlx-8bit (default) | ~1.4 s | **0.059** | ~17× faster | essentially perfect (trivial hyphen-vs-space diff on the longest clip) |
+| large-v3-turbo-q4 | ~29.9 s | **0.317** | ~3.2× faster | also correct this run — no repetition/garbage |
 
-Unambiguous result: the small model is both ~4.3× faster **and** more accurate
-here — 4-bit quantization on the turbo variant looks to be costing real
-accuracy, not just speed. Kept `whisper-small-mlx-8bit` as default; deleted
-both large-v3-turbo caches (824 MB + 442 MB) after benching, same "benchmark
-then clean" pattern as the TTS 0.6B/1.7B round.
+Small is still clearly faster (~5.4×) on a quiet machine — that part holds up.
+The *accuracy* gap from the first (loaded-machine) pass didn't reproduce:
+turbo-q4 transcribed every clip correctly on the idle re-run, including the
+short clip that garbled into "kick-brown fox" before. Treating that first
+accuracy difference as noise/decoding-path variance rather than a real
+small-vs-turbo quality finding — RTF is the reproducible signal here, accuracy
+was a wash both times once re-measured cleanly. Kept `whisper-small-mlx-8bit`
+as default on the RTF numbers alone; deleted both large-v3-turbo caches
+(824 MB + 442 MB, twice now) after benching, same "benchmark then clean"
+pattern as the TTS 0.6B/1.7B round.
 
 Verified: `RUN_MLX_TESTS=1 uv run --extra mlx pytest` green (transcribes a
 synthetic tone without error at both 16 kHz and a resampled 24 kHz — the

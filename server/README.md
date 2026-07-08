@@ -175,13 +175,18 @@ synthesized on the fly via the cached TTS backend:
 
 | model | load+warmup | median RTF | vs real-time |
 |-------|-------------|-----------|--------------|
-| whisper-small-mlx-8bit (default) | ~2.1 s | **0.090** | ~11× faster |
-| whisper-large-v3-turbo-q4 | ~32.2 s | **0.391** | ~2.6× faster |
+| whisper-small-mlx-8bit (default) | ~1.4 s | **0.059** | ~17× faster |
+| whisper-large-v3-turbo-q4 | ~29.9 s | **0.317** | ~3.2× faster |
 
-The small model won on *both* axes here — ~4.3× faster **and** more accurate
-(the turbo/4-bit combination mistranscribed a short clip the small model got
-exactly right). Kept `whisper-small-mlx-8bit` as default; the turbo model's
-cache was deleted after benching (same "benchmark then clean" pattern as TTS).
+(Numbers are from an idle-machine re-run; a first pass under other load on the
+machine measured slower for both and — on that run only — a garbled
+transcription from turbo-q4 on one clip that didn't reproduce once re-measured
+cleanly. Treating that as noise, not a real accuracy gap.)
+
+The small model is ~5.4× faster here; accuracy was comparable between the two
+once measured on a quiet machine. Kept `whisper-small-mlx-8bit` as default on
+the RTF numbers; the turbo model's cache was deleted after benching (same
+"benchmark then clean" pattern as TTS).
 
 Note on model formats: `whisper-large-v3-turbo-8bit` (the more obvious "big"
 pick) failed to load — the installed `mlx-whisper==0.4.3` only reads
