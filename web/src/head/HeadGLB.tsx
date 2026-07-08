@@ -231,6 +231,17 @@ export function HeadGLB({ showFill }: { showFill: boolean }) {
       const index = dictionary[debugViseme]
       if (index !== undefined) influences[index] = debugWeight
     }
+
+    // Dev-only observability: publish the current peak mouth influence so an
+    // automated browser drive can confirm lip-sync is actually deforming the
+    // mesh (there is no external handle on the R3F scene). Stripped from
+    // production builds by the import.meta.env.DEV guard — same spirit as the
+    // debugStore/VisemePanel dev harness that already exists for this mesh.
+    if (import.meta.env.DEV) {
+      let peak = 0
+      for (const v of influences) if (v > peak) peak = v
+      ;(globalThis as { __headMouthInfluence?: number }).__headMouthInfluence = peak
+    }
   })
 
   // Outer group only rotates the head to face the camera; the inner group

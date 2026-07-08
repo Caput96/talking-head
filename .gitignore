@@ -12,6 +12,13 @@ dist
 dist-ssr
 *.local
 
+# Python (/server, managed by uv). uv.lock IS committed; the venv/caches are not.
+.venv
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

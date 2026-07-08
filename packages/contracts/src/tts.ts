@@ -15,11 +15,38 @@
  */
 export interface TTSProvider {
   synthesize(text: string, opts?: TTSOptions): Promise<TTSResult>
+  getCapabilities(): Promise<TTSCapabilities>
 }
 
 export interface TTSOptions {
   voice?: string
   speed?: number
+  /** Language / lang_code hint; provider decides when absent (e.g. 'auto'). */
+  language?: string
+  /** Free-text tone/style prompt; honored only when the provider reports
+   * `supportsInstruct` (e.g. Qwen3-TTS VoiceDesign / 1.7B CustomVoice). */
+  instruct?: string
+}
+
+/**
+ * The voices/languages a provider offers, so a UI can build a correct picker
+ * without knowing the engine. The server exposes this over `GET /capabilities`
+ * as plain name lists (`{ voices: string[], languages: string[] }`); /web
+ * normalizes those into `TTSVoice[]`. Kept in sync with the server by hand
+ * (see server/README.md's contract note — no OpenAPI codegen yet).
+ */
+export interface TTSVoice {
+  id: string
+  label: string
+  group?: string
+}
+
+export interface TTSCapabilities {
+  voices: TTSVoice[]
+  languages: string[]
+  /** Whether a free-text tone/style `instruct` prompt is honored. The server
+   * exposes this over `/capabilities` as `instruct: boolean`. */
+  supportsInstruct: boolean
 }
 
 /**

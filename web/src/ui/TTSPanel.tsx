@@ -1,46 +1,71 @@
-import { useState } from 'react'
-import { BrowserTTSProvider } from '../tts/BrowserTTSProvider'
+import { useEffect, useState } from 'react'
+import { createTTSProvider } from '../tts/createTTSProvider'
 import { getWawaLipsync } from '../head/wawaLipsync'
-import { KOKORO_VOICES } from '../tts/kokoroVoices'
+import type { TTSCapabilities, TTSVoice } from '../tts/TTSProvider'
 import './TTSPanel.css'
-
-const LANGUAGE_LABELS = { 'en-us': 'American English', 'en-gb': 'British English' } as const
 
 /**
  * TTSPanel — plain DOM UI (not R3F/three), rendered *outside* <Canvas> in
- * App.tsx, like ShapeSwitcher/FillToggle. A minimal proof that
- * TTSProvider works end-to-end: type text, pick a voice, hear it spoken.
+ * App.tsx, like ShapeSwitcher/FillToggle. Type text, pick a voice (and, when the
+ * provider supports it, a language), hear it spoken.
  *
- * Playback is routed through the wawa-lipsync bridge (head/wawaLipsync.ts),
- * not straight to the speakers, so its real-time viseme analysis can drive
- * the GLB head's mouth (see head/HeadGLB.tsx) while audio plays — that
- * bridge owns its own audio graph and destination (see its doc comment),
- * so it's the ONLY thing that plays this AudioBuffer; nothing else may also
- * play it or the utterance would sound doubled. TTSPanel doesn't know or
- * care which shape is currently selected — same shape-agnostic design as
- * the rest of the TTS/lip-sync pipeline (ADR-001).
+ * The voice + language options come from `provider.getCapabilities()`, so the
+ * panel is provider-agnostic (ADR-001): browser mode lists Kokoro's voices
+ * (grouped by accent, no language control); server mode lists whatever speakers
+ * and languages the server's model advertises. Nothing here is hardcoded to a
+ * specific engine.
  *
- * The voice picker only offers English voices/accents, not languages — see
- * tts/kokoroVoices.ts's doc comment for why kokoro-js doesn't support the
- * other languages the Kokoro model card advertises.
+ * Playback is routed through the wawa-lipsync bridge (head/wawaLipsync.ts), the
+ * ONLY thing that plays this AudioBuffer, so its viseme analysis can drive the
+ * GLB head's mouth (head/HeadGLB.tsx) — see that bridge's doc comment.
  */
 export function TTSPanel() {
-  // Lazy useState, not a plain `new BrowserTTSProvider()`: keeps one instance
-  // (and its memoized model) alive for the component's lifetime rather than
-  // recreating it — and matches the lazy-init pattern core/useMorphEngine.ts
-  // already uses elsewhere in this codebase.
-  const [provider] = useState(() => new BrowserTTSProvider())
+  // Lazy useState keeps one provider instance (and, for browser, its memoized
+  // model) alive for the component's lifetime. Which concrete provider this is
+  // (browser vs server) is decided by config in createTTSProvider; the panel
+  // only talks to the seam.
+  const [provider] = useState(() => createTTSProvider())
   const [text, setText] = useState('Hello, I am a talking head.')
-  const [voice, setVoice] = useState(KOKORO_VOICES[0].id)
+  const [caps, setCaps] = useState<TTSCapabilities | null>(null)
+  const [voice, setVoice] = useState('')
+  const [language, setLanguage] = useState('auto')
+  const [instruct, setInstruct] = useState('')
   const [isBusy, setIsBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Load the provider's voices/languages once. In server mode this hits the
+  // server (which lazy-loads its model), so the picker shows a loading state
+  // until it resolves. Seed the selected voice/language from the results.
+  useEffect(() => {
+    let cancelled = false
+    provider.getCapabilities().then(
+      (c) => {
+        if (cancelled) return
+        setCaps(c)
+        if (c.voices.length) setVoice(c.voices[0].id)
+        if (c.languages.length) setLanguage(c.languages.includes('auto') ? 'auto' : c.languages[0])
+      },
+      (err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err))
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [provider])
 
   async function handleSpeak() {
     if (isBusy || !text.trim()) return
     setIsBusy(true)
     setError(null)
     try {
-      const result = await provider.synthesize(text, { voice })
+      const result = await provider.synthesize(text, {
+        voice: voice || undefined,
+        // Only send a language when the provider actually offers the control.
+        language: caps?.languages.length ? language : undefined,
+        // Only send a tone prompt when this provider/model honors it.
+        instruct: caps?.supportsInstruct ? instruct || undefined : undefined,
+      })
       getWawaLipsync().play(result.audio)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -48,6 +73,10 @@ export function TTSPanel() {
       setIsBusy(false)
     }
   }
+
+  const voices = caps?.voices ?? []
+  const languages = caps?.languages ?? []
+  const loadingCaps = caps === null && error === null
 
   return (
     <div className="tts-panel">
@@ -57,21 +86,71 @@ export function TTSPanel() {
         rows={2}
         placeholder="Text to speak..."
       />
-      <select value={voice} onChange={(e) => setVoice(e.target.value)}>
-        {Object.entries(LANGUAGE_LABELS).map(([language, label]) => (
-          <optgroup key={language} label={label}>
-            {KOKORO_VOICES.filter((v) => v.language === language).map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.name} — {v.gender} — {v.grade}
-              </option>
-            ))}
-          </optgroup>
-        ))}
+      <select
+        value={voice}
+        onChange={(e) => setVoice(e.target.value)}
+        disabled={loadingCaps || voices.length === 0}
+      >
+        {loadingCaps ? (
+          <option>Loading voices…</option>
+        ) : (
+          renderVoiceOptions(voices)
+        )}
       </select>
-      <button type="button" onClick={handleSpeak} disabled={isBusy}>
-        {isBusy ? 'Loading voice...' : 'Speak'}
+      {languages.length > 0 && (
+        <select value={language} onChange={(e) => setLanguage(e.target.value)}>
+          {languages.map((code) => (
+            <option key={code} value={code}>
+              {titleCase(code)}
+            </option>
+          ))}
+        </select>
+      )}
+      {caps?.supportsInstruct && (
+        <input
+          type="text"
+          value={instruct}
+          onChange={(e) => setInstruct(e.target.value)}
+          placeholder="Voice tone (e.g. cheerful and energetic)"
+          aria-label="Voice tone"
+        />
+      )}
+      <button type="button" onClick={handleSpeak} disabled={isBusy || loadingCaps}>
+        {isBusy ? 'Speaking…' : 'Speak'}
       </button>
       {error && <p className="tts-panel-error">{error}</p>}
     </div>
   )
+}
+
+/** Render voices as flat <option>s, or as <optgroup>s when they carry `group`
+ * (Kokoro's accent headings) — preserving first-seen group order. */
+function renderVoiceOptions(voices: TTSVoice[]) {
+  if (!voices.some((v) => v.group)) {
+    return voices.map((v) => (
+      <option key={v.id} value={v.id}>
+        {v.label}
+      </option>
+    ))
+  }
+  const groups: string[] = []
+  for (const v of voices) {
+    const g = v.group ?? ''
+    if (!groups.includes(g)) groups.push(g)
+  }
+  return groups.map((g) => (
+    <optgroup key={g} label={g}>
+      {voices
+        .filter((v) => (v.group ?? '') === g)
+        .map((v) => (
+          <option key={v.id} value={v.id}>
+            {v.label}
+          </option>
+        ))}
+    </optgroup>
+  ))
+}
+
+function titleCase(code: string): string {
+  return code.charAt(0).toUpperCase() + code.slice(1)
 }

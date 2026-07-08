@@ -54,4 +54,13 @@ describe('BrowserTTSProvider', () => {
 
     expect(fromPretrained).toHaveBeenCalledTimes(1)
   })
+
+  it('exposes the Kokoro voices as accent-grouped capabilities, with no languages', async () => {
+    const caps = await new BrowserTTSProvider().getCapabilities()
+
+    expect(caps.languages).toEqual([]) // Kokoro's accent rides on the voice
+    expect(caps.supportsInstruct).toBe(false)
+    expect(caps.voices[0]).toMatchObject({ id: 'af_heart', group: 'American English' })
+    expect(caps.voices.some((v) => v.group === 'British English')).toBe(true)
+  })
 })

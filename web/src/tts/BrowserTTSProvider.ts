@@ -1,12 +1,20 @@
 import { KokoroTTS } from 'kokoro-js'
 import type { GenerateOptions } from 'kokoro-js'
 import { getAudioContext } from './audioContext'
-import type { TTSOptions, TTSProvider, TTSResult } from './TTSProvider'
+import { KOKORO_VOICES } from './kokoroVoices'
+import type { TTSCapabilities, TTSOptions, TTSProvider, TTSResult } from './TTSProvider'
 
 // See ADR-002: Kokoro chosen for voice quality. "q8" quantization trades a
 // little quality for a much smaller download (~86MB) than the fp32 default.
 const MODEL_ID = 'onnx-community/Kokoro-82M-v1.0-ONNX'
 const DEFAULT_VOICE = 'af_heart'
+
+// Group heading per Kokoro accent. Kokoro has no separate language control — the
+// accent rides on the chosen voice — so getCapabilities() reports no languages.
+const ACCENT_LABELS: Record<string, string> = {
+  'en-us': 'American English',
+  'en-gb': 'British English',
+}
 
 /**
  * BrowserTTSProvider — the TTSProvider implementation backed by Kokoro,
@@ -43,6 +51,22 @@ export class BrowserTTSProvider implements TTSProvider {
     // No phoneme timings from kokoro-js — see TTSProvider.ts's PhonemeTiming
     // doc comment for why that's fine for now.
     return { audio: audioBuffer, timings: [] }
+  }
+
+  // The static Kokoro voice list (tts/kokoroVoices.ts), normalized for the
+  // picker. Synchronous data, wrapped in a resolved Promise to satisfy the
+  // provider-agnostic (possibly async) contract. No language control — Kokoro's
+  // accent is part of the voice.
+  getCapabilities(): Promise<TTSCapabilities> {
+    return Promise.resolve({
+      voices: KOKORO_VOICES.map((v) => ({
+        id: v.id,
+        label: `${v.name} — ${v.gender} — ${v.grade}`,
+        group: ACCENT_LABELS[v.language] ?? v.language,
+      })),
+      languages: [],
+      supportsInstruct: false, // Kokoro has no tone/style prompt
+    })
   }
 
   // Loads the model at most once, on first use, and memoizes the in-flight

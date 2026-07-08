@@ -133,3 +133,147 @@ and morphs sphere→cube with zero console errors — identical to before.
 script was never actually created — it exists nowhere in the repo. Noted here;
 left as-is (neither created nor edited) since it's outside this migration's
 scope.
+
+## 2026-07-07 — Server-TTS seam proven with a stub, before any engine (ADR-004, slice 2a)
+
+**The point of the slice.** Stand up the whole `/web → HTTP → /server` TTS path
+and prove it drives the head, *before* writing any real inference — so slice 2b
+(a real MLX/Qwen3 backend) is a pure drop-in behind an interface that's already
+been exercised end to end. A `StubTTSBackend` returns a deterministic tone; no
+model, no MLX, no download.
+
+**Why it was cheap to bolt on.** The existing pipeline already consumes an
+`AudioBuffer` (`TTSPanel` → `getWawaLipsync().play()`), so `ServerTTSProvider`
+only had to fetch WAV bytes and `decodeAudioData` them — from there, WAV
+re-encode → `<audio>` → wawa-lipsync visemes → `morphTargetInfluences` runs
+byte-for-byte identically to the Kokoro path. The ADR-003 viseme path wasn't
+touched at all. The server/browser choice is a build-time config flag
+(`VITE_TTS_PROVIDER`) behind a `createTTSProvider()` factory; browser (Kokoro)
+stays the zero-setup default.
+
+**The internal backend seam is the real deliverable.** `TTSBackend.synthesize()
+→ SynthesizedAudio{samples, sample_rate}` — backends return raw samples, the
+server layer owns WAV encoding, so nothing engine-, model-, or platform-shaped
+crosses toward `/web`. `MlxTTSBackend` implements the same method in 2b; a
+`get_backend()` factory (`TTS_BACKEND` env) already exists to select it.
+
+**Python toolchain decisions.** uv (not pip/Poetry/conda), Python pinned to 3.12
+and verified **arm64-native** (`platform.machine() == 'arm64'`, not x86 under
+Rosetta). `uv.lock` committed; CI gained a second job (`uv sync --locked` +
+`uv run pytest` on ubuntu, portable deps only). MLX is **declared but not
+installed** — a `sys_platform == 'darwin'` optional extra that `uv sync` skips
+while the lock still records it, keeping the future portable-vs-MLX story honest.
+
+**Contract kept by hand, codegen deferred.** The response is opaque WAV bytes and
+the request is `{text} & TTSOptions`, so OpenAPI→TS codegen would generate almost
+nothing for real cost; `@3d-head/contracts` stays canonical and the Pydantic
+`SynthesizeRequest` mirrors three fields by hand. Revisit when STT returns a
+structured JSON `Transcript`. `TTSResult.timings` stays the empty array it always
+was — no timing field added to satisfy the server (visemes come from the audio).
+
+## 2026-07-07 — Real Qwen3-TTS via MLX, dropped in behind the stub's seam (ADR-004, slice 2b)
+
+**The whole slice was one new file's worth of engine.** `MlxTTSBackend`
+(`server/app/backends/mlx.py`) implements the exact `TTSBackend.synthesize →
+SynthesizedAudio` seam the stub used, registered under `TTS_BACKEND=mlx`.
+`ServerTTSProvider`, the HTTP contract, and all of `/web` were untouched —
+choosing the engine is an env var, and the stub stays as the CI/zero-setup
+fallback. Backend-agnostic held: `mlx_audio`/`mx.array` live only inside that one
+module, the seam still returns plain numpy, the wire is still opaque `audio/wav`.
+
+**Model: Qwen3-TTS-12Hz-0.6B-Base-8bit** (~1.3 GB weights + a speech-token codec).
+Started with the smaller 0.6B over 1.7B deliberately — cheapest download + fastest
+inference to de-risk the integration and get an honest RTF floor; the model id is
+an env var (`MLX_TTS_MODEL`), so 1.7B is a config swap, not code. `Base` gives
+built-in named voices (`Chelsie`); `lang_code="auto"` means multilingual works
+out of the box (the ADR-004 motivation).
+
+**RTF measured on THIS machine — no third-party numbers.** Apple M4 Pro, 24 GB.
+Once cached, model load + warmup ≈ **1.4 s** (one-time); steady-state **median
+RTF ≈ 0.26** (≈3.8× faster than real time), flat from 6 to 152 characters
+(0.25–0.27). Output is float32 mono @ **24 kHz**. Comfortable headroom to move to
+1.7B later. (First-ever run also pays a ~75 s one-time model download.) These are
+the empirical basis for a future ADR on backend/model choice.
+
+**Two real dependency snags, both pinned honestly:**
+- `mlx-audio 0.4.4` *requires* `transformers>=5.5`, but the `mlx-lm 0.31.3` it
+  bundles calls `AutoTokenizer.register("NewlineTokenizer", …)` in a way
+  `transformers 5.13.0` rejects (stricter `register`). Capped `transformers>=5.5,<5.13`
+  in the mlx extra; resolves to 5.12.1, which works.
+- The MLX stack is a **macOS-only extra**, so `import mlx_audio` is **deferred**
+  inside `MlxTTSBackend._ensure_model` and the factory only imports the module
+  when `mlx` is selected — `app.backends` stays importable on CI/linux. The MLX
+  test is double-gated (`importorskip` + `RUN_MLX_TESTS=1`) so neither CI nor a
+  plain `uv run pytest` ever downloads a model.
+
+**Lazy + serialized.** The model loads on the first `/synthesize` (server boots
+instantly, `/health` works meanwhile), memoized under a load lock; generate runs
+under a separate lock since MLX eval isn't concurrency-safe — correct and enough
+for a local single user.
+
+**Follow-up — Base → CustomVoice (the voice changed every utterance).** First
+real use surfaced a wrong model pick: with `0.6B-Base-8bit` the voice was a
+*different speaker every Speak*. Qwen3-TTS `Base` is the voice-*cloning*
+foundation — it has no trained speakers, so `voice="…"` is just a free label and
+temperature-0.9 sampling invents a new speaker each generation (cloning needs a
+`ref_audio`). The multi-speaker variant is **CustomVoice**, which conditions on a
+fixed named-speaker embedding and *validates* the name. Switched the default to
+`0.6B-CustomVoice-8bit`, voice `serena` (Base had silently accepted the invalid
+`Chelsie`; CustomVoice's speaker set is serena/vivian/uncle_fu/ryan/aiden/
+ono_anna/sohee/eric/dylan). Verified stable: the same text twice gives a matching
+spectral centroid (~2000 Hz) = same identity. Same size/quant, so the measured
+RTF above still holds. The env seam made this a one-line default change, no code.
+
+## 2026-07-08 — Voice + language selection, provider-advertised (ADR-004 2b follow-up)
+
+**Made the picker tell the truth per provider.** The voice `<select>` was
+hardcoded to Kokoro voices and disabled in server mode, and there was no language
+control — even though the MLX model already exposes `model.supported_speakers`
+(serena/vivian/uncle_fu/ryan/aiden/ono_anna/sohee/eric/dylan) and
+`model.supported_languages` (auto/english/italian/german/spanish/portuguese/
+french/russian/chinese/japanese/korean). Rather than duplicate those lists in
+`/web`, the **provider advertises capabilities**: added `getCapabilities()` to the
+`TTSProvider` seam (ADR-001) and a `GET /capabilities` endpoint that returns the
+active backend's `voices()`/`languages()` (introspected from the loaded model, so
+it's correct for whatever model is configured). `BrowserTTSProvider` returns the
+Kokoro voices (grouped, no language control — Kokoro's language rides on the
+voice); `ServerTTSProvider` fetches `/capabilities`. `TTSOptions` gained
+`language` (default `auto`). The MLX backend now validates a requested
+voice/language against the model's sets and falls back to its default rather than
+500-ing on a stale value (which is how the earlier Kokoro-`af_heart` leak
+surfaced). Italian etc. are now reachable from the UI — the ADR-004 multilingual
+goal, live.
+
+**RTF on both CustomVoice models — measured on THIS M4 Pro (24 GB), no third-party
+numbers.** Same 4-text bench, steady-state median RTF (load+warmup excluded):
+
+| model | load+warmup | median RTF | vs real-time |
+|-------|-------------|-----------|--------------|
+| 0.6B-CustomVoice-8bit (default) | ~1.4 s | **0.25** | ~3.9× faster |
+| 1.7B-CustomVoice-8bit | ~2.1 s | **0.32** | ~3.1× faster |
+
+The 1.7B is ~25 % slower but still ~3× faster than real time — quality upgrade is
+viable whenever wanted (a one-line `MLX_TTS_MODEL` change). Kept **0.6B as the
+default** and deleted the 1.7B from the HF cache after benching (per the
+"benchmark then clean" intent). These supersede the single-model note above and
+are the empirical basis for a future model-choice ADR.
+
+## 2026-07-08 — Instruct (voice-tone) box, gated on real model capability
+
+Qwen3-TTS CustomVoice/VoiceDesign models take an `instruct` prompt (tone/style,
+e.g. "cheerful and energetic"). Wired it through the same capabilities seam:
+`TTSBackend.supports_instruct()`, surfaced on `/capabilities` as `instruct: bool`
+and on `TTSCapabilities.supportsInstruct`; `TTSPanel` shows a "Voice tone" text
+box **only when the provider reports support**. `TTSOptions.instruct` flows
+web → `/synthesize` → `model.generate(instruct=…)`.
+
+The gate is honest, not cosmetic: it mirrors mlx-audio's own rule —
+`voice_design` → always; `custom_voice` → only when `tts_model_size != "0b6"`
+(the 0.6B build silently drops instruct); Base → never. So **the default
+0.6B-CustomVoice reports `false` and shows no box** — correct behavior, not a
+bug. Verified both ways on this machine: 0.6B → `instruct:false`, no box, Speak
+still works; re-downloaded 1.7B-CustomVoice → `instruct:true`, box appears, and
+"very happy" vs "very angry" on the same text/voice produce **different audio**
+(103 KB vs 134 KB) — the prompt genuinely changes delivery. Then deleted the
+1.7B again (0.6B stays default). The MLX backend only forwards `instruct` when
+`supports_instruct()`, so an unsupported model is never fed a stray prompt.
