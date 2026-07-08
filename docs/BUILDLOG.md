@@ -328,3 +328,79 @@ one `POST /transcribe` → 200, no console errors.
 **Not in this slice:** real MLX-Whisper backend (slice STT-b, separate
 follow-up — model size choice + RTF measured on this machine, same pattern as
 the TTS 0.6B/1.7B bench), no conversation loop, no portable whisper.cpp backend.
+
+## 2026-07-08 — Real MLX-Whisper backend + RTF on both models (ADR-004 slice STT-b)
+
+**`MlxWhisperBackend`** replaces the stub behind the same `STTBackend` seam,
+`STT_BACKEND=mlx`. Two things the initial sketch got wrong, caught by reading
+`mlx_whisper`'s actual source before writing code against it:
+
+- `mlx_whisper.transcribe()` takes a path OR a raw array; only the **path**
+  form shells out to a system `ffmpeg` binary to decode/resample. The array
+  form skips `ffmpeg` but is used as-is — **no internal resampling** — so it
+  must already be mono float32 at Whisper's hardcoded 16 kHz. Always pass the
+  array form (no undeclared system dependency); the backend resamples first
+  via `scipy.signal.resample_poly` whenever the incoming WAV's sample rate
+  (whatever the browser's mic happened to record at) isn't already 16 kHz.
+- Whisper's `language` option is an ISO-639-1 **code** (`"it"`), not a full
+  word — the reverse of the TTS side. To keep `/web`'s vocabulary uniform
+  (full words, same list style as the TTS language picker: `english, italian,
+  german, spanish, portuguese, french, russian, chinese, japanese, korean`),
+  `MlxWhisperBackend` translates word ↔ code internally via Whisper's own
+  `tokenizer.LANGUAGES` dict, both directions (request and detected-language
+  response). No ISO code ever reaches `/web`.
+
+**A real, unavoidable dependency cost:** `mlx-whisper` hard-depends on `torch`
+(confirmed via PyPI metadata), unlike `mlx-audio`. Not used on our array-input
+code path, but `uv sync --extra mlx` installs it regardless (~84 MB download on
+this machine — a CPU/MPS arm64 wheel, not the multi-GB CUDA build).
+
+**Model choice — and a real compatibility gotcha.** Picked
+`mlx-community/whisper-small-mlx-8bit` (multilingual, quantized, ~282 MiB) as
+the default, matching the TTS default's "quantized, not fp16" choice. For the
+"bigger" comparison, `whisper-large-v3-turbo-8bit` — Whisper large-v3 with a
+distilled 4-layer decoder, fast despite being large — **failed to load**:
+the installed `mlx-whisper==0.4.3` only knows `weights.safetensors` /
+`weights.npz`, not the newer `model.safetensors` that repo ships (a fallback
+added later upstream, not yet in the 0.4.3 release). Switched the comparison to
+`mlx-community/whisper-large-v3-turbo-q4` — same large-v3-turbo model, older/
+loadable weight format, ~442 MiB. A real "read the actual installed version,
+don't assume the latest docs" lesson.
+
+**RTF, measured on THIS M4 Pro (24 GB) — same 4-clip bench as TTS, input speech
+synthesized on the fly via the already-cached TTS backend (no extra download,
+doubles as an accuracy sanity check):**
+
+| model | load+warmup | median RTF | vs real-time | transcription quality |
+|-------|-------------|-----------|--------------|------------------------|
+| small-mlx-8bit (default) | ~2.1 s | **0.090** | ~11× faster | near-perfect (one minor spacing slip on the longest clip) |
+| large-v3-turbo-q4 | ~32.2 s | **0.391** | ~2.6× faster | *worse* on the short clip ("kick-brown fox" for "quick brown fox") |
+
+Unambiguous result: the small model is both ~4.3× faster **and** more accurate
+here — 4-bit quantization on the turbo variant looks to be costing real
+accuracy, not just speed. Kept `whisper-small-mlx-8bit` as default; deleted
+both large-v3-turbo caches (824 MB + 442 MB) after benching, same "benchmark
+then clean" pattern as the TTS 0.6B/1.7B round.
+
+Verified: `RUN_MLX_TESTS=1 uv run --extra mlx pytest` green (transcribes a
+synthetic tone without error at both 16 kHz and a resampled 24 kHz — the
+stub/Kokoro rate); `uv sync --extra mlx` resolved cleanly, no version conflict
+this time (unlike mlx-audio's transformers pin).
+
+**A real-speech scare, traced to the test input, not the code.** First manual
+check used macOS `say` to generate a test WAV — the small model (and, retried
+to rule out quantization, the fp16 non-quantized variant) transcribed it as
+looping garbage (`"prav prav prav…"`), confidently mis-detected as Slovenian.
+Before assuming a pipeline bug, isolated the variable: called
+`mlx_whisper.transcribe()` directly on the file path (its own ffmpeg-based
+loader, bypassing all of this backend's code) — **still garbage** — which
+rules out `decode_wav`/the resample step and points at the audio itself.
+Confirmed by trying a real human-speech sample instead (`ls_test.flac`, the
+LibriSpeech clip `mlx_whisper`'s own repo ships for its tests): both the raw
+`mlx_whisper.transcribe()` call *and* the full backend path (`decode_wav` →
+resample → `transcribe` → language mapping) *and* a live `POST /transcribe`
+all produced a correct, coherent transcription. So the implementation is
+verified correct end-to-end; `say`'s particular synthetic voice is just outside
+what this Whisper build handles gracefully — a model/input-compatibility
+finding, not a bug here, worth knowing before assuming a manual test failure
+means broken code.

@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "pnpm --filter web dev",
     "dev:server": "uv run --directory server uvicorn app.main:app --reload --port 8000",
-    "dev:server:mlx": "TTS_BACKEND=mlx uv run --directory server --extra mlx uvicorn app.main:app --reload --port 8000",
+    "dev:server:mlx": "TTS_BACKEND=mlx STT_BACKEND=mlx uv run --directory server --extra mlx uvicorn app.main:app --reload --port 8000",
     "dev:all": "concurrently -n web,server -c blue,green \"pnpm dev\" \"pnpm dev:server\"",
     "dev:all:mlx": "concurrently -n web,mlx -c blue,green \"pnpm dev\" \"pnpm dev:server:mlx\"",
     "build": "pnpm --filter web build",

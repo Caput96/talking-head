@@ -15,11 +15,12 @@ the `TTS_BACKEND` env:
 - **`mlx`** — `MlxTTSBackend` runs **real Qwen3-TTS** on Apple Silicon via
   `mlx-audio`. macOS-only; opt-in.
 
-**STT (slice STT-a):** the mirror seam, chosen by `STT_BACKEND`:
+**STT (slice STT-b):** the mirror seam, chosen by `STT_BACKEND`:
 
 - **`stub`** (default) — `StubSTTBackend` returns a fixed string reporting how
   much audio it received. No model — proves the mic→server plumbing.
-- **`mlx`** — not implemented yet (`MlxWhisperBackend`, slice STT-b).
+- **`mlx`** — `MlxWhisperBackend` runs **real Whisper** on Apple Silicon via
+  `mlx-whisper`. macOS-only; opt-in.
 
 ```
 /web ServerTTSProvider  → POST /synthesize  → {Stub|Mlx}TTSBackend    → WAV
@@ -61,9 +62,13 @@ are identical for both, on either seam.
   base64-in-JSON here, on either endpoint — that's a ~33% size penalty for no
   benefit). Absent/`"auto"` lets the backend detect the language; the stub
   ignores it and echoes back whatever hint it got, defaulting to `"auto"`.
+  The MLX backend resamples the incoming audio to Whisper's required 16 kHz
+  if needed, and translates the full-word `language` (e.g. `"italian"`) to
+  Whisper's ISO code internally — `/web` never sees a code either direction.
 - `GET /stt/capabilities` — `{ "languages": string[] }` the active STT backend
-  offers (empty for the stub — no language control until a real model is
-  wired in).
+  offers (empty for the stub; the MLX backend returns
+  `auto, english, italian, german, spanish, portuguese, french, russian,
+  chinese, japanese, korean`).
 - `GET /health` — `{ "status": "ok", "tts_backend": "stub" | "mlx", "stt_backend": "stub" | "mlx" }`.
 
 ## Layout
@@ -75,12 +80,15 @@ are identical for both, on either seam.
   `StubSTTBackend` (fixed transcript string).
 - `app/backends/mlx.py` — `MlxTTSBackend` (Qwen3-TTS via mlx-audio; lazy load,
   deferred `mlx_audio` import so this stays importable without the extra).
-- `app/backends/mlx_whisper.py` — not yet implemented (slice STT-b).
+- `app/backends/mlx_whisper.py` — `MlxWhisperBackend` (Whisper via mlx-whisper;
+  deferred `mlx_whisper` import, resamples to 16 kHz, translates language
+  word ↔ ISO code internally).
 - `app/backends/__init__.py` — `get_backend()`/`get_stt_backend()` factories,
   chosen by `TTS_BACKEND`/`STT_BACKEND` env (`stub` default, `mlx` opt-in).
 - `app/audio.py` — `encode_wav()`/`decode_wav()` (transport concern, kept out
   of backends — WAV both ways, so no backend ever touches the wire format).
-- `scripts/bench_rtf.py` — measures TTS real-time factor on this machine.
+- `scripts/bench_rtf.py` / `bench_stt_rtf.py` — measure TTS / STT real-time
+  factor on this machine.
 
 ## Environment (uv)
 
@@ -96,8 +104,8 @@ uv run uvicorn app.main:app --reload --port 8000   # run the server directly
 From the repo root, the pnpm workspace scripts wrap these:
 
 ```bash
-pnpm dev:server               # stub backend, uvicorn on :8000
-pnpm dev:server:mlx           # mlx backend (real Qwen3-TTS), uvicorn on :8000
+pnpm dev:server               # stub backends (TTS + STT), uvicorn on :8000
+pnpm dev:server:mlx           # mlx backends (real Qwen3-TTS + Whisper), uvicorn on :8000
 pnpm dev:all                  # web (Vite) + stub server together, via concurrently
 ```
 
@@ -141,6 +149,60 @@ request or `uv run --extra mlx python scripts/bench_rtf.py`.
 The extra is macOS-only by design; CI (ubuntu) and the default `uv sync` stay
 MLX-free and exercise the stub, keeping the future portable-vs-MLX backend story
 honest.
+
+## MLX backend (real Whisper, macOS only)
+
+`mlx-whisper` lives in the same `mlx` extra as `mlx-audio` (`uv sync --extra mlx`
+installs both):
+
+```bash
+uv sync --extra mlx
+STT_BACKEND=mlx uv run --extra mlx uvicorn app.main:app --port 8000
+# or, from repo root: pnpm dev:server:mlx (also enables TTS_BACKEND=mlx)
+```
+
+Config (all env, all optional):
+
+| var | default | meaning |
+|-----|---------|---------|
+| `STT_BACKEND` | `stub` | `mlx` selects Whisper |
+| `MLX_STT_MODEL` | `mlx-community/whisper-small-mlx-8bit` | HF repo id |
+| `MLX_STT_LANGUAGE` | `auto` | language hint (full word, e.g. `italian`); `auto` lets Whisper detect |
+
+**Why the small model, not large-v3-turbo:** benchmarked both on this M4 Pro
+(24 GB), same 4-clip bench as the TTS RTF numbers below, input speech
+synthesized on the fly via the cached TTS backend:
+
+| model | load+warmup | median RTF | vs real-time |
+|-------|-------------|-----------|--------------|
+| whisper-small-mlx-8bit (default) | ~2.1 s | **0.090** | ~11× faster |
+| whisper-large-v3-turbo-q4 | ~32.2 s | **0.391** | ~2.6× faster |
+
+The small model won on *both* axes here — ~4.3× faster **and** more accurate
+(the turbo/4-bit combination mistranscribed a short clip the small model got
+exactly right). Kept `whisper-small-mlx-8bit` as default; the turbo model's
+cache was deleted after benching (same "benchmark then clean" pattern as TTS).
+
+Note on model formats: `whisper-large-v3-turbo-8bit` (the more obvious "big"
+pick) failed to load — the installed `mlx-whisper==0.4.3` only reads
+`weights.safetensors`/`weights.npz`, not the newer `model.safetensors` that
+repo ships. `whisper-large-v3-turbo-q4` is the same model in the
+older/loadable format, hence the comparison above uses `-q4`, not `-8bit`.
+
+**Whisper's hard requirements, handled internally so /web never sees them:**
+Whisper always wants mono float32 at 16 kHz — `MlxWhisperBackend` resamples
+via `scipy.signal.resample_poly` if the incoming WAV's rate differs. Whisper's
+`language` option is an ISO-639-1 code (`"it"`), not a full word — the backend
+translates the full-word list above ↔ codes internally via `mlx_whisper`'s own
+`tokenizer.LANGUAGES` dict, in both directions (request and detected result).
+
+Passing a raw array (not a file path) to `mlx_whisper.transcribe()` is
+deliberate: the path form shells out to a system `ffmpeg` binary to
+decode/resample, an extra undeclared dependency this backend avoids entirely
+by always resampling itself and passing the array form.
+
+**Tests:** same double-gate as the TTS MLX test:
+`RUN_MLX_TESTS=1 uv run --extra mlx pytest tests/test_mlx_whisper_backend.py`.
 
 ## Contract agreement with /web
 

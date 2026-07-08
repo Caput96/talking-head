@@ -3,10 +3,9 @@
 `get_backend()` / `get_stt_backend()` pick the concrete TTS/STT engine *inside*
 the server, chosen by the `TTS_BACKEND` / `STT_BACKEND` env vars — the "backend"
 level of ADR-004 §3's two-level choice (the "provider" level — browser vs
-server — lives in /web). Only the stubs exist for STT so far (slice STT-a);
-`MlxWhisperBackend` slots in here additively in slice STT-b, with no change to
-the provider, the HTTP contract, or /web — exactly how `MlxTTSBackend` slotted
-in for TTS.
+server — lives in /web). `MlxWhisperBackend` slotted in here additively for
+STT (slice STT-b), exactly how `MlxTTSBackend` did for TTS — no change to the
+provider, the HTTP contract, or /web.
 """
 
 import os
@@ -27,6 +26,12 @@ DEFAULT_MLX_MODEL = "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit"
 # rejects unknown ones; its set is
 # ['serena','vivian','uncle_fu','ryan','aiden','ono_anna','sohee','eric','dylan'].
 DEFAULT_MLX_VOICE = "serena"
+
+# Default Whisper model: the small 8-bit multilingual build (~282 MiB
+# download). Benchmarked on this machine against the large-v3-turbo 8-bit
+# build (~824 MiB) — see docs/BUILDLOG.md for the RTF numbers behind this
+# choice. Override via env for higher quality.
+DEFAULT_MLX_STT_MODEL = "mlx-community/whisper-small-mlx-8bit"
 
 
 def get_backend() -> TTSBackend:
@@ -54,13 +59,20 @@ def get_backend_name() -> str:
 
 
 def get_stt_backend() -> STTBackend:
-    # Only 'stub' exists in slice STT-a. 'mlx' (MlxWhisperBackend) slots in here
-    # additively in slice STT-b, the same way MlxTTSBackend slotted into
-    # get_backend() above — no change to the provider, contract, or /web.
     name = os.environ.get("STT_BACKEND", "stub")
     if name == "stub":
         return StubSTTBackend()
-    raise ValueError(f"unknown STT_BACKEND={name!r} (available: 'stub')")
+    if name == "mlx":
+        # Deferred import: MlxWhisperBackend pulls in mlx-whisper (macOS-only
+        # extra), so only import it when the mlx backend is actually selected —
+        # keeps this module importable on CI/linux where it isn't installed.
+        from .mlx_whisper import MlxWhisperBackend
+
+        return MlxWhisperBackend(
+            model_id=os.environ.get("MLX_STT_MODEL", DEFAULT_MLX_STT_MODEL),
+            language=os.environ.get("MLX_STT_LANGUAGE", "auto"),
+        )
+    raise ValueError(f"unknown STT_BACKEND={name!r} (available: 'stub', 'mlx')")
 
 
 def get_stt_backend_name() -> str:
