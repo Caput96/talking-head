@@ -45,6 +45,11 @@ export function STTPanel() {
   const [isBusy, setIsBusy] = useState(false)
   const [transcript, setTranscript] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Object URL for the just-recorded Blob, so it can be played back with a
+  // plain <audio> element — dev-only debug aid (see the render below): if the
+  // mic capture is the thing failing (as opposed to transcription), you can
+  // hear that directly instead of guessing from a transcript alone.
+  const [recordingUrl, setRecordingUrl] = useState<string | null>(null)
 
   // MediaRecorder + the chunks it's collecting live across renders but never
   // need to trigger one themselves — refs, not state.
@@ -76,6 +81,15 @@ export function STTPanel() {
 
     setError(null)
     setTranscript(null)
+
+    // Some browsers expose no `mediaDevices` at all outside a secure context,
+    // or ship it disabled — fail with a clear message here instead of letting
+    // the next line throw a cryptic "Cannot read properties of undefined".
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError('This browser does not support microphone recording (getUserMedia unavailable).')
+      return
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       const recorder = new MediaRecorder(stream, { mimeType: pickMimeType() })
@@ -95,13 +109,29 @@ export function STTPanel() {
       recorder.start()
       setIsRecording(true)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      // getUserMedia rejects with a DOMException whose `name` (e.g.
+      // NotAllowedError, NotFoundError) is more diagnostic than its generic
+      // `message` — surface both, since a browser silently misbehaving here
+      // (permission blocked, no device found) is exactly what this error slot
+      // is for.
+      const name = err instanceof DOMException ? `${err.name}: ` : ''
+      setError(`${name}${err instanceof Error ? err.message : String(err)}`)
     }
   }
 
   async function handleStopped(blob: Blob) {
     setIsRecording(false)
     setIsBusy(true)
+
+    if (import.meta.env.DEV) {
+      // Revoke the previous recording's URL before replacing it — otherwise
+      // every take leaks a Blob for the life of the page.
+      setRecordingUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev)
+        return URL.createObjectURL(blob)
+      })
+    }
+
     try {
       const audioContext = getAudioContext()
       const audio = await audioContext.decodeAudioData(await blob.arrayBuffer())
@@ -137,6 +167,12 @@ export function STTPanel() {
       >
         {isRecording ? 'Stop' : isBusy ? 'Transcribing…' : 'Record'}
       </button>
+      {/* Dev-only debug aid: hear back exactly what the mic captured, before
+          transcription — tells you whether a "doesn't work" report is a mic
+          capture problem or a transcription problem. */}
+      {import.meta.env.DEV && recordingUrl && (
+        <audio controls src={recordingUrl} className="stt-panel-debug-audio" />
+      )}
       {transcript && <p className="stt-panel-transcript">{transcript}</p>}
       {error && <p className="stt-panel-error">{error}</p>}
     </div>
