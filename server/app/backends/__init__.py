@@ -25,7 +25,7 @@ DEFAULT_MLX_MODEL = "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit"
 # A built-in speaker of the CustomVoice model. This model validates the name and
 # rejects unknown ones; its set is
 # ['serena','vivian','uncle_fu','ryan','aiden','ono_anna','sohee','eric','dylan'].
-DEFAULT_MLX_VOICE = "serena"
+DEFAULT_MLX_VOICE = "ryan"
 
 # Default Whisper model: the small 8-bit multilingual build (~282 MiB
 # download). Benchmarked on this machine against the large-v3-turbo 8-bit
