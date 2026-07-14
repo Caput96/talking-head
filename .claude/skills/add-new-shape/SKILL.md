@@ -13,10 +13,17 @@ while adding shapes quickly, not just generating files.
 `positions`, `edges` (wireframe), and `faces` (an invisible occlusion mesh —
 see core/useMorphEngine.ts and Scene.tsx's "Solid/Wireframe" toggle). A shape
 factory never touches any of these directly; `sampleGrid` builds them all,
-including a fan-triangulated cap at both grid ends (row 0 and row `rows`) so
-the occluder stays fully closed even for a shape whose end isn't a pole (e.g.
-the pyramid's flat base) — this happens automatically, no factory-level work
-needed.
+including a fan-triangulated cap at each grid end (row 0 and row `rows`) *when
+that end actually needs one* — determined from the sampled geometry, not the
+shape's identity: an end that's a pole (every column collapsed to one point,
+like a sphere) needs no cap, an end that matches the *opposite* end (a torus,
+whose v=0 and v=1 sample the same ring) also needs no cap since the last band
+of quads already closes that loop, and only a genuinely open, distinct ring
+(the pyramid's flat base) gets fanned closed. This is automatic — no
+factory-level work needed — but it does mean the occluder's `faces` can differ
+between two shapes with the same vertex count, so `useMorphEngine.ts`'s
+`retarget()` refreshes the occluder's index on every retarget, not just when
+rebuilding the geometry.
 
 ## Input
 
@@ -58,6 +65,15 @@ already covers this shape's geometry (sphere and cube are both
 `superellipsoid` at different exponents — a new rounded/faceted shape should
 probably reuse it, not duplicate the formula). Only add a new exported
 function to `surfaces.ts` if the geometry is genuinely novel.
+
+**Axis convention:** if the new shape has a distinguishing "vertical" axis
+(an apex, a dome, a hole axis — anything that isn't rotationally symmetric
+enough to not care) author it on **Y**, not Z. The camera (`App.tsx`) and
+`OrbitControls` (`Scene.tsx`) use the standard three.js `up = (0,1,0)`: Y
+stays fixed on screen no matter how the user orbits, while Z is the camera's
+initial depth axis, not "up". Every surface in `surfaces.ts`
+(`superellipsoid`, `pyramid`, `torusSurface`, `lightbulbSurface`) follows this
+already — use them as the reference pattern.
 
 ## Step 3 — Scaffold the factory
 
@@ -105,7 +121,7 @@ surface function with new parameters, a test usually isn't needed.
    `chromium-cli` is not available in this environment):
 
    ```js
-   const { chromium } = require('/Users/caput/Projects/3d-head/node_modules/playwright')
+   const { chromium } = require('/Users/caput/Projects/3d-head/web/node_modules/playwright')
    ;(async () => {
      const browser = await chromium.launch()
      const page = await browser.newPage({ viewport: { width: 1000, height: 700 } })

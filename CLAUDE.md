@@ -59,8 +59,15 @@ Therefore, in EVERY response:
 - Zustand for state
 - Package manager: pnpm
 - Local in-browser TTS (Kokoro via transformers.js or Piper WASM) — see ADR-002
-- **Single Vite project, NOT a monorepo.** Introduce a monorepo only if/when a
-  server (FastAPI) is added, and document it with a dedicated ADR.
+- **pnpm monorepo (native workspaces)** — see ADR-004. Layout: `/web` (the Vite
+  app, all app code lives here), `/server` (local TTS/STT inference process —
+  stub for now), `/packages/*` (shared TypeScript contracts, e.g.
+  `@3d-head/contracts` with the `TTSProvider`/`STTProvider` interfaces). Root
+  `package.json` only delegates (`pnpm --filter web …`, `pnpm -r typecheck`); run
+  commands still work from the repo root. This retires ADR-002's earlier
+  single-Vite-project constraint, whose stated trigger (introducing a server)
+  ADR-004 meets. A root `.npmrc` public-hoists `@types/react*` so R3F's JSX type
+  augmentation resolves under pnpm's isolated store — don't remove it.
 
 ## Architecture (see docs/adr/ADR-001)
 
@@ -107,6 +114,11 @@ pnpm test         # tests (vitest)
 4. Local TTS: lock the `TTSProvider` interface, then integrate the model.
 5. Lip-sync: amplitude-driven first, then viseme-driven on the mouth group.
 6. Polish: post-processing, performance, documentation.
+7. Server + STT (ADR-004): local inference process behind provider seams —
+   `ServerTTSProvider` (multilingual, Qwen3-TTS on MLX) and a new `STTProvider`
+   (MLX-Whisper), portable backends deferred. **Structural step done**: repo is
+   now a `/web` + `/server` + `/packages` monorepo (see ADR-004 slice 1 in
+   BUILDLOG); the server, provider impls, and backends are still to come.
 
 ## When to use Claude Code features (only if NEEDED)
 

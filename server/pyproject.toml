@@ -1,0 +1,54 @@
+[project]
+name = "server"
+version = "0.0.0"
+description = "Local TTS/STT inference process for 3d.head (ADR-004)."
+# Pinned to 3.12 (single minor) so the whole stack stays on one arm64-native
+# interpreter; uv fetches cpython-3.12-macos-aarch64 (never x86 under Rosetta).
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "numpy>=2.1",
+    # pydantic is pulled in transitively by fastapi; not pinned here on purpose.
+]
+
+# MLX is DECLARED now but NOT installed in this slice (2a is stub-only). It is a
+# macOS-only optional extra so the future portable-vs-MLX backend story stays
+# honest: `uv sync` (no --extra mlx) skips it, while uv.lock still records its
+# resolution under the darwin marker. The stub backend carries no such marker.
+[project.optional-dependencies]
+# ≥0.4.4 for Qwen3-TTS support. macOS-only: the MLX stack (mlx, mlx-lm) ships
+# arm64 darwin wheels, so `uv sync --extra mlx` installs it only on this machine;
+# CI (ubuntu) and the stub path stay MLX-free.
+mlx = [
+    "mlx-audio>=0.4.4; sys_platform == 'darwin'",
+    # mlx-audio 0.4.4 requires transformers>=5.5, but mlx-lm 0.31.3's
+    # AutoTokenizer.register("NewlineTokenizer", ...) call breaks on transformers
+    # 5.13.0 (stricter register() rejects a str config_class). Cap below 5.13.
+    "transformers>=5.5,<5.13; sys_platform == 'darwin'",
+    # MLX-Whisper (STT). Declares no transformers dependency, so no conflict
+    # with the cap above. Hard-depends on torch itself (unlike mlx-audio) —
+    # unavoidable, just not used on our numpy-array transcribe path.
+    "mlx-whisper>=0.4.3; sys_platform == 'darwin'",
+    # For resampling to Whisper's required 16 kHz before transcribe() — already
+    # a transitive mlx-whisper dependency, declared directly since we import it.
+    "scipy>=1.14; sys_platform == 'darwin'",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "httpx>=0.28", # required by starlette's TestClient
+]
+
+# An application, not a library — nothing here is meant to be imported as an
+# installed package, so we skip a build backend and run it with cwd=server
+# (see the root `dev:server` script / `uv run --directory server`).
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+# `app` is imported as a top-level package from the tests; add server/ (".") to
+# sys.path so `from app.main import app` resolves without installing the app.
+pythonpath = ["."]
+testpaths = ["tests"]

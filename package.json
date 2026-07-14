@@ -2,35 +2,19 @@
   "name": "3d-head",
   "private": true,
   "version": "0.0.0",
-  "type": "module",
+  "packageManager": "pnpm@10.33.0",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "lint": "oxlint",
-    "typecheck": "tsc -b --noEmit",
-    "test": "vitest run",
-    "preview": "vite preview"
-  },
-  "dependencies": {
-    "@react-three/drei": "^10.7.7",
-    "@react-three/fiber": "^9.6.1",
-    "kokoro-js": "^1.2.1",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7",
-    "three": "^0.185.1",
-    "wawa-lipsync": "^0.0.2",
-    "zustand": "^5.0.14"
+    "dev": "pnpm --filter web dev",
+    "dev:server": "uv run --directory server uvicorn app.main:app --reload --port 8000",
+    "dev:server:mlx": "TTS_BACKEND=mlx STT_BACKEND=mlx uv run --directory server --extra mlx uvicorn app.main:app --reload --port 8000",
+    "dev:all": "concurrently -n web,server -c blue,green \"pnpm dev\" \"pnpm dev:server\"",
+    "dev:all:mlx": "concurrently -n web,mlx -c blue,green \"pnpm dev\" \"pnpm dev:server:mlx\"",
+    "build": "pnpm --filter web build",
+    "lint": "pnpm --filter web lint",
+    "test": "pnpm --filter web test",
+    "typecheck": "pnpm -r typecheck"
   },
   "devDependencies": {
-    "@types/node": "^24.13.2",
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
-    "@types/three": "^0.185.0",
-    "@vitejs/plugin-react": "^6.0.3",
-    "oxlint": "^1.71.0",
-    "playwright": "^1.61.1",
-    "typescript": "~6.0.2",
-    "vite": "^8.1.1",
-    "vitest": "^4.1.9"
+    "concurrently": "^9.1.0"
   }
 }

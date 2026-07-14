@@ -29,3 +29,19 @@ jobs:
       - run: pnpm typecheck
 
       - run: pnpm test
+
+  # Separate job for the Python /server (ADR-004). Runs on ubuntu with the
+  # portable deps only — the stub backend has no macOS/MLX requirement, so CI
+  # exercises the seam cross-platform. The MLX extra (darwin-only) is not synced.
+  server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - run: uv sync --locked
+        working-directory: server
+
+      - run: uv run pytest
+        working-directory: server

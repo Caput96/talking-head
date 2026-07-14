@@ -1,0 +1,7 @@
+# pnpm workspace root (ADR-004 §1). Native pnpm workspaces — one buildable app
+# (web) plus scaffolding (server stub, shared contracts). No task runner yet:
+# there is no cross-package build graph to orchestrate. See ADR-004.
+packages:
+  - web
+  - server
+  - packages/*
