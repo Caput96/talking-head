@@ -16,6 +16,9 @@ function smoothstep(edge0: number, edge1: number, x: number): number {
  * component raised to 2/exponent. At exponent 2 this is exactly a sphere;
  * as the exponent grows, corners sharpen and the surface rounds into a cube.
  * One formula, one grid — sphere and cube are just different exponents.
+ *
+ * The pole axis (`cos(phi)`) is Y, matching the scene's Y-up camera — see
+ * `torusSurface`'s and `pyramid`'s doc comments for the shared convention.
  */
 export function superellipsoid(exponent: number): SurfaceFn {
   const power = 2 / exponent
@@ -24,8 +27,8 @@ export function superellipsoid(exponent: number): SurfaceFn {
     const theta = u * Math.PI * 2 // longitude, wraps with the grid's u
     const phi = v * Math.PI // colatitude, pole to pole
     const x = signedPow(Math.sin(phi), power) * signedPow(Math.cos(theta), power)
-    const y = signedPow(Math.sin(phi), power) * signedPow(Math.sin(theta), power)
-    const z = signedPow(Math.cos(phi), power)
+    const z = signedPow(Math.sin(phi), power) * signedPow(Math.sin(theta), power)
+    const y = signedPow(Math.cos(phi), power)
     return [x, y, z]
   }
 }
@@ -39,6 +42,10 @@ export function superellipsoid(exponent: number): SurfaceFn {
  * relies on for its tube, and consistent with this project's retro wireframe
  * look. `u` still wraps a full, unbroken turn, so this fits the shared grid
  * without any topology changes.
+ *
+ * The apex-to-base axis is Y (matching the scene's Y-up camera), so the apex
+ * points up and the base sits down — see `torusSurface`'s doc comment for the
+ * shared convention every surface here follows.
  */
 export function pyramid(halfBase: number, height: number): SurfaceFn {
   const cornerPower = 2 / 12 // same "squareness" as the cube — see superellipsoid
@@ -47,8 +54,8 @@ export function pyramid(halfBase: number, height: number): SurfaceFn {
     const theta = u * Math.PI * 2
     const radius = v * halfBase // 0 at the apex, halfBase at the base
     const x = radius * signedPow(Math.cos(theta), cornerPower)
-    const y = radius * signedPow(Math.sin(theta), cornerPower)
-    const z = height * (0.5 - v) // apex at +height/2, base at -height/2
+    const z = radius * signedPow(Math.sin(theta), cornerPower)
+    const y = height * (0.5 - v) // apex at +height/2, base at -height/2
     return [x, y, z]
   }
 }
@@ -60,10 +67,11 @@ export function pyramid(halfBase: number, height: number): SurfaceFn {
  * a narrower cylindrical screw base, closing to a point at the very bottom so
  * the shared grid's end-cap (see core/grid.ts) stays a clean zero-area fan.
  *
- * Unlike the other surfaces here, the axis of revolution is Y, not Z, so the
- * dome points up and the base points down to match the scene's Y-up camera.
- * Both v-ends collapse to the axis (radius 0), so like the sphere it reads as
- * a fully closed surface with no open ring — it fits the shared grid for free.
+ * The axis of revolution is Y, so the dome points up and the base points down
+ * to match the scene's Y-up camera — the same convention every surface here
+ * follows (see `torusSurface`'s doc comment). Both v-ends collapse to the
+ * axis (radius 0), so like the sphere it reads as a fully closed surface with
+ * no open ring — it fits the shared grid for free.
  */
 export function lightbulbSurface(): SurfaceFn {
   const V_JOIN = 0.58 // v where the glass bulb hands off to the screw base
@@ -107,6 +115,11 @@ export function lightbulbSurface(): SurfaceFn {
  * `v` sweeps the tube's cross-section across a full turn, so v=0 and v=1 map
  * to the same 3D point — the tube closes with no seam even though the shared
  * grid itself doesn't wrap `v` (see core/grid.ts).
+ *
+ * The main ring lies in the XZ plane, so the hole's axis is Y, matching the
+ * scene's Y-up camera — the convention every surface in this file follows
+ * (the alternative would face the hole at the camera instead of standing it
+ * up like a wheel).
  */
 export function torusSurface(majorRadius: number, minorRadius: number): SurfaceFn {
   return (u, v) => {
@@ -114,8 +127,8 @@ export function torusSurface(majorRadius: number, minorRadius: number): SurfaceF
     const phi = v * Math.PI * 2
     const ringRadius = majorRadius + minorRadius * Math.cos(phi)
     const x = ringRadius * Math.cos(theta)
-    const y = ringRadius * Math.sin(theta)
-    const z = minorRadius * Math.sin(phi)
+    const z = ringRadius * Math.sin(theta)
+    const y = minorRadius * Math.sin(phi)
     return [x, y, z]
   }
 }

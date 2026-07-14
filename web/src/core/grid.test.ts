@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { sampleGrid } from './grid'
+import { pyramid, torusSurface } from '../shapes/surfaces'
 
 describe('sampleGrid', () => {
   const rows = 2
@@ -55,5 +56,33 @@ describe('sampleGrid', () => {
 
     // Row 0 has vertices 0, 1, 2 — the only possible fan triangle is (0, 1, 2).
     expect(triangles).toContainEqual([0, 1, 2])
+  })
+
+  it('skips both end caps when both ends are poles (a closed surface with no open ring)', () => {
+    const doublePole = () => [0, 0, 0] as const
+    const { faces } = sampleGrid(rows, cols, doublePole)
+
+    // Only the 2 * rows * cols band triangles — no fan triangles at either end.
+    expect(faces.length).toBe(2 * rows * cols * 3)
+  })
+
+  it("skips both end caps on a real torus (v=0/v=1 match — the fix for the donut-hole-filling bug)", () => {
+    const { faces } = sampleGrid(rows, cols, torusSurface(0.7, 0.3))
+
+    expect(faces.length).toBe(2 * rows * cols * 3)
+  })
+
+  it('caps only the open base on a real pyramid, not the apex pole', () => {
+    const { faces } = sampleGrid(rows, cols, pyramid(1, 2))
+    const vertexIndex = (row: number, col: number) => row * cols + (col % cols)
+
+    const triangles: Array<[number, number, number]> = []
+    for (let i = 0; i < faces.length; i += 3) triangles.push([faces[i], faces[i + 1], faces[i + 2]])
+
+    // Base cap (row = rows) present: the fan from its first vertex.
+    expect(triangles).toContainEqual([vertexIndex(rows, 0), vertexIndex(rows, 1), vertexIndex(rows, 2)])
+    // Apex cap (row = 0) absent: no fan triangle starting from its first vertex.
+    expect(triangles).not.toContainEqual([vertexIndex(0, 0), vertexIndex(0, 1), vertexIndex(0, 2)])
+    expect(faces.length).toBe((2 * rows * cols + (cols - 2)) * 3)
   })
 })

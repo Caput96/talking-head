@@ -113,6 +113,10 @@ export function useMorphEngine(initialFormation: Formation) {
     const nextVertexCount = formation.positions.length / 3
     if (nextVertexCount === current.engine.vertexCount) {
       current.shapeMorphSource.setTarget(formation.positions)
+      // Unlike edges, faces can differ between two shapes sharing a vertex
+      // count (see core/grid.ts's buildGridFaces) — refresh the occluder's
+      // index every retarget, not just when the geometry itself is rebuilt.
+      current.occluderGeometry.setIndex(new BufferAttribute(formation.faces, 1))
       return
     }
 

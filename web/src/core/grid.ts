@@ -23,7 +23,10 @@ export interface Formation {
   /** Triangle indices (3 per face) — the invisible occlusion surface that
    * stops the far side of a shape from showing through the near side (see
    * core/useMorphEngine.ts). Every shape needs one for occlusion to work
-   * uniformly, with no shape-specific case. */
+   * uniformly, with no shape-specific case. Unlike `edges`, this can differ
+   * between two shapes with the same vertex count (see `buildGridFaces`), so
+   * `useMorphEngine.ts`'s `retarget()` refreshes this index on every retarget,
+   * not just on a vertex-count change. */
   faces: Uint32Array
 }
 
@@ -44,7 +47,7 @@ export function sampleGrid(rows: number, cols: number, surface: SurfaceFn): Form
     }
   }
 
-  return { positions, edges: buildGridEdges(rows, cols), faces: buildGridFaces(rows, cols) }
+  return { positions, edges: buildGridEdges(rows, cols), faces: buildGridFaces(rows, cols, positions) }
 }
 
 function buildGridEdges(rows: number, cols: number): Uint32Array {
@@ -63,23 +66,56 @@ function buildGridEdges(rows: number, cols: number): Uint32Array {
   return new Uint32Array(edges)
 }
 
+const RING_EPSILON = 1e-4 // well above float noise (e.g. cos(2*PI) != 1 exactly), well below any real feature size
+
+/** The 3D point sampled at (row, col), read back out of the flat positions buffer. */
+function ringVertex(positions: Float32Array, cols: number, row: number, col: number): readonly [number, number, number] {
+  const i = (row * cols + col) * 3
+  return [positions[i], positions[i + 1], positions[i + 2]]
+}
+
+function approxEqual(a: readonly number[], b: readonly number[]): boolean {
+  return Math.abs(a[0] - b[0]) < RING_EPSILON && Math.abs(a[1] - b[1]) < RING_EPSILON && Math.abs(a[2] - b[2]) < RING_EPSILON
+}
+
+/** True if every column of `row` sampled to the same 3D point — a pole, like the top/bottom of a sphere. */
+function ringIsPole(positions: Float32Array, cols: number, row: number): boolean {
+  const first = ringVertex(positions, cols, row, 0)
+  for (let col = 1; col < cols; col++) {
+    if (!approxEqual(first, ringVertex(positions, cols, row, col))) return false
+  }
+  return true
+}
+
+/** True if row A and row B sampled to the same ring, vertex for vertex — a surface that closes on itself in v (a torus). */
+function ringsMatch(positions: Float32Array, cols: number, rowA: number, rowB: number): boolean {
+  for (let col = 0; col < cols; col++) {
+    if (!approxEqual(ringVertex(positions, cols, rowA, col), ringVertex(positions, cols, rowB, col))) return false
+  }
+  return true
+}
+
 /**
  * Two triangles per grid cell (the quad between a row and the next one) —
  * the surface used for occlusion (see core/useMorphEngine.ts), not for the
  * wireframe. Same (row, col) indexing as buildGridEdges, so the torus's
  * seamless close carries over here with no extra work.
  *
- * Both ends (row 0 and row `rows`) also get a fan-triangulated cap, built
+ * Each end (row 0 and row `rows`) may also need a fan-triangulated cap, built
  * only from vertices that already exist on that ring (no new vertices —
  * that would change the vertex count and break morph compatibility with
- * every other shape). For a pole — where every column has collapsed to the
- * same 3D point, like the top/bottom of a sphere — this is a no-op: the fan
- * triangles all have zero area, so they're simply invisible. For a shape
- * whose end is a genuine open ring instead — the pyramid's flat base — this
- * is what actually closes it, so the occluder doesn't leave a hole to see
- * through. One rule, no per-shape special case.
+ * every other shape). Whether an end actually needs one depends on the
+ * sampled geometry, not the shape's identity:
+ *  - A pole — every column collapsed to the same 3D point, like the top/
+ *    bottom of a sphere — needs no cap: the fan would have zero area anyway.
+ *  - An end that isn't a pole but matches the *other* end (a torus: v=0 and
+ *    v=1 sample the same non-degenerate ring) also needs no cap — the last
+ *    band of quads above already closes that loop; fanning it too would pave
+ *    a flat disc across the torus's hole.
+ *  - Only a genuinely open, distinct ring — the pyramid's flat base — needs
+ *    the fan, since nothing else closes it.
  */
-function buildGridFaces(rows: number, cols: number): Uint32Array {
+function buildGridFaces(rows: number, cols: number, positions: Float32Array): Uint32Array {
   const vertexIndex = (row: number, col: number) => row * cols + (col % cols)
   const faces: number[] = []
 
@@ -93,7 +129,13 @@ function buildGridFaces(rows: number, cols: number): Uint32Array {
     }
   }
 
+  const topIsPole = ringIsPole(positions, cols, 0)
+  const bottomIsPole = ringIsPole(positions, cols, rows)
+  const endsWrap = !topIsPole && !bottomIsPole && ringsMatch(positions, cols, 0, rows)
+
   for (const row of [0, rows]) {
+    const isPole = row === 0 ? topIsPole : bottomIsPole
+    if (isPole || endsWrap) continue
     for (let col = 1; col < cols - 1; col++) {
       faces.push(vertexIndex(row, 0), vertexIndex(row, col), vertexIndex(row, col + 1))
     }
